@@ -1,0 +1,11 @@
+numpy
+opencv-python
+Pillow
+torch
+transformers 
+scipy
+torchvision
+tqdm
+sahi
+bioclip
+open-clip-torch

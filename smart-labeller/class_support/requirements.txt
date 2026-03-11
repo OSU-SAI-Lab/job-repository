@@ -7,5 +7,5 @@ scipy
 torchvision
 tqdm
 sahi
-bioclip
+pybioclip
 open-clip-torch

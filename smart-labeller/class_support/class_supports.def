@@ -1,5 +1,5 @@
 Bootstrap: docker
-From: python:3.9-bullseye
+From: python:3.12-bullseye
 
 %files
     generate_class_supports_main.py /app/generate_class_supports_main.py

@@ -31,7 +31,7 @@ from torch.utils.data import DataLoader
 from transformers import Owlv2Processor, Owlv2ForObjectDetection
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
-from data.OverlappingTileDataset import OverlappingTileDataset
+from OverlappingTileDataset import OverlappingTileDataset
 from proposal.embedding_utils import get_embedder
 
 # ---------------------------------------------------------------------------

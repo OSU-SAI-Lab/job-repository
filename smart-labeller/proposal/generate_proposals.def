@@ -44,8 +44,9 @@ From: python:3.12-bullseye
         scipy \
         sahi \
         opencv-python \
-        bioclip \
-        open-clip-torch
+        pybioclip \
+        open-clip-torch \
+        accelerate
 
     # Make scripts readable/executable
     chmod 755 /app/proposal/generate_proposals.py

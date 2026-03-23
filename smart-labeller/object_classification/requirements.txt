@@ -8,3 +8,5 @@ torchvision
 tqdm
 sahi
 accelerate
+pybioclip
+open-clip-torch

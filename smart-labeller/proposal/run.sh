@@ -1,5 +1,8 @@
 python generate_proposals.py \
-  --backend owlv2 \
-  --image_dir /users/PAS2699/brijeshnandaby/projects/advanced-auto-labeler/query \
-  --output_dir /users/PAS2699/brijeshnandaby/projects/advanced-auto-labeler/output \
-  --embedding_backend dinov3
+  --backend sam3 \
+  --image_dir /fs/ess/PAS2699/farmers_meet/query \
+  --output_dir /fs/ess/PAS2699/farmers_meet/output_run \
+  --embedding_backend bioclip \
+  --confidence 0.2 \
+  --batch_size 2 \
+  # --is_sahi

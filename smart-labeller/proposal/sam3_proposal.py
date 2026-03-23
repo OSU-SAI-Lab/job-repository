@@ -21,6 +21,7 @@ import numpy as np
 import torch
 from torchvision.ops import nms as torchvision_nms
 from torch.utils.data import DataLoader
+import torch.nn.functional as F
 from transformers import Sam3Model, Sam3Processor
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
@@ -46,55 +47,40 @@ sam3_processor = Sam3Processor.from_pretrained(MODEL_ID)
 # ---------------------------------------------------------------------------
 
 def _run_sam3_on_batch(tile_images, text_prompt, confidence_threshold):
-    """
-    Run SAM3 on a batch of PIL tile images.
+    inputs = sam3_processor(
+        images=tile_images,
+        text=[text_prompt] * len(tile_images),  # one prompt per image
+        return_tensors="pt"
+    ).to(DEVICE)
 
-    Returns:
-        boxes_list:  List of tensors (M, 4) [x1,y1,x2,y2], one per tile.
-        scores_list: List of tensors (M,), one per tile.
-        Both lists contain empty tensors for tiles with no detections.
-    """
-    try:
-        inputs = sam3_processor(
-            images=tile_images,
-            text=[text_prompt] * len(tile_images),
-            return_tensors="pt"
-        ).to(DEVICE)
+    with torch.no_grad():
+        outputs = sam3_model(**inputs)
 
-        with torch.no_grad():
-            outputs = sam3_model(**inputs)
+    target_sizes = inputs.get("original_sizes").tolist()
+    batch_results = sam3_processor.post_process_instance_segmentation(
+        outputs,
+        threshold=confidence_threshold,
+        mask_threshold=confidence_threshold,
+        target_sizes=target_sizes
+    )
 
-        raw_boxes = sam3_processor.post_process_masks_for_box_prediction(
-            outputs,
-            original_sizes=inputs["original_sizes"],
-            reshaped_input_sizes=inputs["reshaped_input_sizes"]
-        )
+    boxes_list  = []
+    scores_list = []
 
-        boxes_list  = []
-        scores_list = []
+    for result in batch_results:
+        if len(result["masks"]) == 0:
+            boxes_list.append(torch.zeros((0, 4)))
+            scores_list.append(torch.zeros((0,)))
+            continue
 
-        if hasattr(outputs, "scores"):
-            for boxes, scores in zip(raw_boxes, outputs.scores):
-                mask = scores >= confidence_threshold
-                if mask.any():
-                    boxes_list.append(boxes[mask])
-                    scores_list.append(scores[mask])
-                else:
-                    boxes_list.append(torch.zeros((0, 4)))
-                    scores_list.append(torch.zeros((0,)))
-        else:
-            for boxes in raw_boxes:
-                b = boxes if isinstance(boxes, torch.Tensor) else torch.tensor(boxes)
-                boxes_list.append(b)
-                scores_list.append(torch.ones(b.shape[0]))  # no score → 1.0
+        # post_process_instance_segmentation returns boxes as [x1, y1, x2, y2]
+        boxes  = result["boxes"].float().cpu()   # (M, 4) tensor
+        scores = result["scores"].float().cpu()  # (M,)   tensor
 
-        return boxes_list, scores_list
+        boxes_list.append(boxes)
+        scores_list.append(scores)
 
-    except Exception as e:
-        print(f"Error during SAM3 inference: {str(e)}")
-        empty_b = [torch.zeros((0, 4)) for _ in tile_images]
-        empty_s = [torch.zeros((0,))   for _ in tile_images]
-        return empty_b, empty_s
+    return boxes_list, scores_list
 
 
 def _global_nms(boxes, scores, feats, iou_threshold=0.5):
@@ -129,6 +115,7 @@ def generate_proposals_tiled(
     image_paths,
     text_prompt="visual",
     confidence_threshold=0.5,
+    is_sahi=False,
     tile_size=960,
     overlap_ratio=0.2,
     batch_size=8,
@@ -136,17 +123,18 @@ def generate_proposals_tiled(
     embedding_backend="dinov3",
 ):
     """
-    Generate bounding-box proposals for a list of images using SAM3
-    with tiled inference, then extract per-box embeddings and stitch
-    everything back to original image coordinates.
+    Generate bounding-box proposals for a list of images using SAM3,
+    with optional tiled inference via SAHI.
 
     Args:
         image_paths:        List of Path / str image file paths.
         text_prompt:        Text prompt passed to SAM3 for every tile.
         confidence_threshold: Minimum SAM3 score to keep a box.
-        tile_size:          Tile size in pixels (square).
-        overlap_ratio:      Fractional overlap between adjacent tiles.
-        batch_size:         Number of tiles per SAM3 inference call.
+        is_sahi:            Enable SAHI (Sliced Aided Hyper Inference).
+                            If False, processes whole image. If True, tiles and stitches.
+        tile_size:          Tile size in pixels (only used when is_sahi=True).
+        overlap_ratio:      Fractional overlap between tiles (only used when is_sahi=True).
+        batch_size:         Number of tiles/images per inference call.
         nms_iou_threshold:  IoU threshold for stitching NMS.
         embedding_backend:  One of 'dinov3', 'bioclip', 'owlv2'.
 
@@ -163,11 +151,27 @@ def generate_proposals_tiled(
     # Load the chosen embedding model once
     embedder = get_embedder(embedding_backend)
 
-    dataset = OverlappingTileDataset(
-        image_paths=image_paths,
-        tile_size=tile_size,
-        overlap_ratio=overlap_ratio,
-    )
+    # Use tiling only if SAHI is enabled
+    if is_sahi:
+        dataset = OverlappingTileDataset(
+            image_paths=image_paths,
+            tile_size=tile_size,
+            overlap_ratio=overlap_ratio,
+        )
+    else:
+        # Whole-image mode: treat entire image as single "tile"
+        from PIL import Image
+        dataset = []
+        for img_idx, img_path in enumerate(image_paths):
+            img = Image.open(img_path).convert("RGB")
+            w, h = img.size
+            dataset.append({
+                "image": img,
+                "metadata": {
+                    "img_idx": img_idx,
+                    "coords": torch.tensor([0, 0], dtype=torch.float32),
+                }
+            })
 
     # img_idx -> accumulated lists before stitching
     img_accum = collections.defaultdict(lambda: {
@@ -176,15 +180,22 @@ def generate_proposals_tiled(
         "feats":  [],
     })
 
-    loader = DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        collate_fn=lambda x: x,   # keep as list of dicts
-    )
+    if is_sahi:
+        loader = DataLoader(
+            dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            collate_fn=lambda x: x,   # keep as list of dicts
+        )
+    else:
+        # For whole-image mode, batch images directly
+        loader = [dataset[i:i + batch_size] for i in range(0, len(dataset), batch_size)]
 
-    print(f"[SAM3] Total tiles: {len(dataset)} "
-          f"(batch_size={batch_size}, tile_size={tile_size}, overlap={overlap_ratio})")
+    if is_sahi:
+        print(f"[SAM3] SAHI enabled | Total tiles: {len(dataset)} "
+              f"(batch_size={batch_size}, tile_size={tile_size}, overlap={overlap_ratio})")
+    else:
+        print(f"[SAM3] Processing {len(dataset)} whole images (SAHI disabled)")
 
     for batch_idx, batch in enumerate(loader):
         tile_images = [item["image"]               for item in batch]
@@ -203,7 +214,7 @@ def generate_proposals_tiled(
 
             # --- shift tile-local boxes → original image coords ---
             ox, oy = coords[0].item(), coords[1].item()
-            offset = torch.tensor([ox, oy, ox, oy], dtype=tile_boxes.dtype)
+            offset = torch.tensor([ox, oy, ox, oy], dtype=tile_boxes.dtype, device=tile_boxes.device)
             global_boxes = (tile_boxes + offset).cpu()
 
             # --- extract per-box embeddings from the tile crop ---

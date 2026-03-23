@@ -40,12 +40,14 @@ if __name__ == "__main__":
                         help="Directory containing images to process")
     parser.add_argument("--output_dir",    type=str,   default="output",
                         help="Directory to save results (default: output)")
-    parser.add_argument("--confidence",    type=float, default=0.5,
-                        help="Confidence threshold (default: 0.5)")
+    parser.add_argument("--confidence",    type=float, default=0.1,
+                        help="Confidence threshold (default: 0.1)")
+    parser.add_argument("--is_sahi",       action="store_true", default=False,
+                        help="Enable SAHI (Sliced Aided Hyper Inference) for tiling (default: False, process whole image)")
     parser.add_argument("--tile_size",     type=int,   default=960,
-                        help="Tile size in pixels (default: 960)")
+                        help="Tile size in pixels (only used with --is_sahi) (default: 960)")
     parser.add_argument("--overlap_ratio", type=float, default=0.2,
-                        help="Overlap ratio between tiles (default: 0.2)")
+                        help="Overlap ratio between tiles (only used with --is_sahi) (default: 0.2)")
     parser.add_argument("--batch_size",    type=int,   default=4,
                         help="Tiles per inference batch (default: 8)")
     parser.add_argument("--nms_iou",          type=float, default=0.5,
@@ -69,7 +71,7 @@ if __name__ == "__main__":
     image_files = sorted([f for f in image_dir.iterdir()
                           if f.suffix.lower() in image_extensions])
 
-    print(f"Found {len(image_files)} images  |  backend: {args.backend}  |  embeddings: {args.embedding_backend}")
+    print(f"Found {len(image_files)} images  |  backend: {args.backend}  |  embeddings: {args.embedding_backend}  |  SAHI: {args.is_sahi}")
 
     generate_proposals_tiled = get_backend(args.backend)
 
@@ -77,12 +79,17 @@ if __name__ == "__main__":
     if args.model_id:
         extra_kwargs["model_id"] = args.model_id
 
+    # Only use tiling parameters if SAHI is enabled
+    tile_size = args.tile_size if args.is_sahi else None
+    overlap_ratio = args.overlap_ratio if args.is_sahi else None
+
     results = generate_proposals_tiled(
         image_paths=image_files,
         text_prompt=args.text_prompt,
         confidence_threshold=args.confidence,
-        tile_size=args.tile_size,
-        overlap_ratio=args.overlap_ratio,
+        is_sahi=args.is_sahi,
+        tile_size=tile_size,
+        overlap_ratio=overlap_ratio,
         batch_size=args.batch_size,
         nms_iou_threshold=args.nms_iou,
         embedding_backend=args.embedding_backend,
@@ -123,8 +130,8 @@ if __name__ == "__main__":
             })
 
     # Write combined .npz
-    features_dir = Path(args.output_dir) / "objects"
-    boxes_dir    = Path(args.output_dir) / "boxes"
+    features_dir = Path(args.output_dir) / "proposals/tensors"
+    boxes_dir    = Path(args.output_dir) / "proposals/generated_boxes"
     features_dir.mkdir(parents=True, exist_ok=True)
     boxes_dir.mkdir(parents=True, exist_ok=True)
 

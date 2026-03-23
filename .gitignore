@@ -20,3 +20,7 @@ rad.json
 *.flf
 #Test results file
 TestResults.xml
+# Generated .sif files
+*.sif
+# Python cache
+__pycache__/

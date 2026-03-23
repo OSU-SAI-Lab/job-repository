@@ -33,6 +33,7 @@ from transformers import Owlv2Processor, Owlv2ForObjectDetection
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from OverlappingTileDataset import OverlappingTileDataset
 from proposal.embedding_utils import get_embedder
+from PIL import Image
 
 # ---------------------------------------------------------------------------
 # Model initialisation
@@ -76,6 +77,7 @@ def _run_owlv2_on_batch(
     model,
     pil_tiles: list,
     objectness_threshold: float,
+    nms_iou_threshold: float,
 ):
     """
     Run OWLv2 objectness inference on a batch of PIL tile images.
@@ -94,7 +96,7 @@ def _run_owlv2_on_batch(
         fmap        = model.image_embedder(pv)[0]          # (B, Hf, Wf, C)
         B, Hf, Wf, C = fmap.shape
         query_feats = fmap.view(B, Hf * Wf, C)            # (B, N, C)
-        obj_scores  = model.objectness_predictor(query_feats).sigmoid()  # (B, N)
+        obj_scores  = model.objectness_predictor(query_feats).sigmoid().squeeze(-1)  # (B, N)
         raw_boxes   = model.box_predictor(
             query_feats, fmap, interpolate_pos_encoding=False
         )                                                   # (B, N, 4) cxcywh normalised
@@ -132,7 +134,7 @@ def _run_owlv2_on_batch(
         ], dim=1)
 
         # Per-tile NMS to thin out dense anchors before stitching
-        keep = torchvision_nms(boxes_px, k_scores, 0.5)
+        keep = torchvision_nms(boxes_px, k_scores, nms_iou_threshold)
         native_feats_list.append(k_feats[keep].cpu().float())
         boxes_list.append(boxes_px[keep].cpu().float())
         scores_list.append(k_scores[keep].cpu().float())
@@ -169,26 +171,28 @@ def generate_proposals_tiled(
     image_paths,
     text_prompt="visual",          # unused for OWLv2 objectness – kept for API compat
     confidence_threshold=0.1,
+    is_sahi=False,
     tile_size=960,
     overlap_ratio=0.25,
     batch_size=8,
-    nms_iou_threshold=0.5,
+    nms_iou_threshold=0.2,
     embedding_backend="owlv2",
     model_id=DEFAULT_MODEL_ID,
 ):
     """
     Generate bounding-box proposals for a list of images using OWLv2
-    objectness scoring with tiled inference, then extract per-box
-    embeddings and stitch back to original image coordinates.
+    objectness scoring, with optional tiled inference via SAHI.
 
     Args:
         image_paths:          List of Path / str image file paths.
         text_prompt:          Ignored (OWLv2 uses class-agnostic objectness).
                               Kept for API compatibility with generate_proposals.py.
         confidence_threshold: Minimum objectness score to keep a box.
-        tile_size:            Tile size in pixels (square).
-        overlap_ratio:        Fractional overlap between adjacent tiles.
-        batch_size:           Number of tiles per inference call.
+        is_sahi:              Enable SAHI (Sliced Aided Hyper Inference).
+                              If False, processes whole image. If True, tiles and stitches.
+        tile_size:            Tile size in pixels (only used when is_sahi=True).
+        overlap_ratio:        Fractional overlap between tiles (only used when is_sahi=True).
+        batch_size:           Number of tiles/images per inference call.
         nms_iou_threshold:    IoU threshold for global stitching NMS.
         embedding_backend:    'owlv2' (native anchor feats) | 'dinov3' | 'bioclip'.
                               'owlv2' is fastest; others re-crop & re-embed each box.
@@ -214,11 +218,26 @@ def generate_proposals_tiled(
     else:
         print(f"[OWLv2] Using native OWLv2 anchor features")
 
-    dataset = OverlappingTileDataset(
-        image_paths=image_paths,
-        tile_size=tile_size,
-        overlap_ratio=overlap_ratio,
-    )
+    # Use tiling only if SAHI is enabled
+    if is_sahi:
+        dataset = OverlappingTileDataset(
+            image_paths=image_paths,
+            tile_size=tile_size,
+            overlap_ratio=overlap_ratio,
+        )
+    else:
+        # Whole-image mode: treat entire image as single "tile"
+        dataset = []
+        for img_idx, img_path in enumerate(image_paths):
+            img = Image.open(img_path).convert("RGB")
+            w, h = img.size
+            dataset.append({
+                "image": img,
+                "metadata": {
+                    "img_idx": img_idx,
+                    "coords": torch.tensor([0, 0], dtype=torch.float32),
+                }
+            })
 
     # img_idx -> accumulated numpy arrays before stitching
     img_accum = collections.defaultdict(lambda: {
@@ -227,15 +246,19 @@ def generate_proposals_tiled(
         "feats":  [],
     })
 
-    loader = DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        collate_fn=lambda x: x,   # keep as list of dicts
-    )
-
-    print(f"[OWLv2] Total tiles: {len(dataset)} "
-          f"(batch_size={batch_size}, tile_size={tile_size}, overlap={overlap_ratio})")
+    if is_sahi:
+        print(f"[OWLv2] SAHI enabled | Total tiles: {len(dataset)} "
+              f"(batch_size={batch_size}, tile_size={tile_size}, overlap={overlap_ratio})")
+        loader = DataLoader(
+            dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            collate_fn=lambda x: x,   # keep as list of dicts
+        )
+    else:
+        print(f"[OWLv2] Processing {len(dataset)} whole images (SAHI disabled)")
+        # For whole-image mode, batch images directly
+        loader = [dataset[i:i + batch_size] for i in range(0, len(dataset), batch_size)]
 
     for batch_idx, batch in enumerate(loader):
         tile_images = [item["image"]               for item in batch]
@@ -243,7 +266,7 @@ def generate_proposals_tiled(
         img_idxs    = [item["metadata"]["img_idx"]  for item in batch]
 
         native_feats_list, boxes_list, scores_list = _run_owlv2_on_batch(
-            processor, model, tile_images, confidence_threshold
+            processor, model, tile_images, confidence_threshold, nms_iou_threshold
         )
 
         for tile_img, native_feats, tile_boxes, tile_scores, coords, img_idx in zip(

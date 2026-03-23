@@ -389,12 +389,12 @@ async def predict_with_text_batch(req: SegmentationRequest, token: str, start_ti
     step_start = time.time()
     raw_image = fetch_image_from_tapis(req.system_id, req.image_path, token)
     load_time = time.time() - step_start
-    print(f"⏱️ Image Load: {load_time:.4f}s")
+    print(f"Image Load: {load_time:.4f}s")
 
     patch_size = req.get_effective_patch_size()
     if patch_size is not None:
         tile_coords = build_overlapping_tiles(raw_image.width, raw_image.height, patch_size, req.overlap_ratio)
-        print(f"🧩 Using tiled text inference: {len(tile_coords)} tiles, patch_size={patch_size}, overlap_ratio={req.overlap_ratio}")
+        print(f"Using tiled text inference: {len(tile_coords)} tiles, patch_size={patch_size}, overlap_ratio={req.overlap_ratio}")
     else:
         tile_coords = [(0, 0, raw_image.width, raw_image.height)]
     

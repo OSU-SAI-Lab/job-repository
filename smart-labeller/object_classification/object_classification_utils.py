@@ -108,6 +108,10 @@ def cosine_similarity_detection(
     feats      = object_features['features']
     boxes      = object_features['boxes']
     obj_scores = object_features['scores']
+    
+    for cn, ce in class_supports.items():
+        print(f"    '{cn}': {ce.shape}")
+    
     if feats is None:
         return []
 
@@ -121,14 +125,31 @@ def cosine_similarity_detection(
 
     # L2-normalise proposal features  (M, D)
     feats_norm = F.normalize(feats.float(), p=2, dim=-1)
-
+    feat_dim = feats_norm.shape[-1]
+    
     detections = []
     for class_name, support_embs in class_supports.items():
+        
         if support_embs.dim() == 1:
             support_embs = support_embs.unsqueeze(0)
-        support_norm = F.normalize(support_embs.float().to(device), p=2, dim=-1)  # (S, D)
+        
+        support_embs = support_embs.float().to(device)
+        
+        # Validate and fix dimension mismatch
+        support_dim = support_embs.shape[-1]
+        
+        if support_dim != feat_dim:
+            
+            # If support is (D, S) instead of (S, D), transpose it
+            if support_embs.shape[0] == feat_dim:
+                print(f"       Transposing (detected D,S format)...")
+                support_embs = support_embs.T
+                support_dim = support_embs.shape[-1]
+            
+        
+        support_norm = F.normalize(support_embs, p=2, dim=-1)  # (S, D)
 
-        # (M, S) cosine similarities → take max over supports
+        # (M, D) @ (D, S) → (M, S) cosine similarities → take max over supports
         sim_matrix = feats_norm @ support_norm.T
         sim_scores, _ = sim_matrix.max(dim=1)   # (M,)
 

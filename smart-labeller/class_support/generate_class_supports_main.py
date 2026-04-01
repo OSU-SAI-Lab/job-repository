@@ -78,14 +78,12 @@ def main(crop_size: int, backends_to_run: list = None) -> tuple:
             support_examples, backend, model_bundle, DEVICE, src_path=SRC_PATH, crop_size=crop_size
         )
 
-        # Save the GT-box JSON only on the first backend pass
-        if not boxes_saved:
+        if backend == "owlv2":
             gen_boxes_filename = f"generated_boxes_{crop_size}_{timestamp}.json"
             gen_boxes_path = os.path.join(generated_boxes_dir, gen_boxes_filename)
             with open(gen_boxes_path, "w") as f:
                 json.dump({"annotations": generated_boxes}, f, indent=2)
             print(f"Saved generated boxes → {gen_boxes_path}")
-            boxes_saved = True
 
         # Save per-backend embeddings
         tensor_filename = f"class_supports_{backend}_{crop_size}_{timestamp}.npz"

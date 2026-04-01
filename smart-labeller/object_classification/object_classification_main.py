@@ -4,10 +4,10 @@ import numpy as np
 from PIL import Image
 import argparse
 import json
-from object_detection.object_classification_utils import run_detection_for_backend, load_model_and_processor
+from object_classification_utils import run_detection_for_backend, load_model_and_processor
 import torch
 
-METHOD = "image"  # image, text, RPN
+METHOD = None  # image, text, RPN
 SRC_PATH = None
 QRY_PATH = None
 OUTPUT_PATH = None
@@ -78,7 +78,7 @@ def process(
 ## save to file system        
 def save_detections(annotations, timestamp, backend):
     generated_boxes_dir = os.path.join(OUTPUT_PATH, "detections")
-    detection_file_path = os.path.join(generated_boxes_dir, f"detections_{backend}_{SIMILARITY_THRESHOLD}_{NMS_IOU_THRESHOLD}_{PROPOSAL_NMS_THRESHOLD}_{timestamp}.json")
+    detection_file_path = os.path.join(generated_boxes_dir, f"detections_{backend}_{SIMILARITY_THRESHOLD}_{OBJECTNESS_THRESHOLD}_{timestamp}.json")
     os.makedirs(generated_boxes_dir, exist_ok=True)
     with open(detection_file_path, "w") as f:
         json.dump({"annotations": annotations}, f)
@@ -103,9 +103,16 @@ def main() -> bool:
         if path and os.path.exists(path):
             print(f"[{backend}] Loading class supports from {path}")
             cs_np = np.load(path)
-            all_class_supports[backend] = {
-                k: torch.from_numpy(cs_np[k]).to(DEVICE) for k in cs_np.files
-            }
+            print(f"[{backend}] NPZ keys: {list(cs_np.files)}")
+            all_class_supports[backend] = {}
+            for k in cs_np.files:
+                tensor = torch.from_numpy(cs_np[k]).to(DEVICE)
+                # Squeeze out any extra dimensions (ensure shape is (N, D))
+                tensor = tensor.squeeze()
+                if tensor.dim() == 1:
+                    tensor = tensor.unsqueeze(0)  # If squeezed to 1D, add back batch dim
+                print(f"  '{k}': {tensor.shape}")
+                all_class_supports[backend][k] = tensor
         else:
             print(f"[{backend}] Class support file not found: {path}")
             all_class_supports[backend] = {}
@@ -126,13 +133,17 @@ def main() -> bool:
         if npz is None:
             return {'features': None, 'boxes': None, 'scores': None}
         try:
+            features_tensor = torch.from_numpy(npz[f'{query_file_name}_features']).to(DEVICE)
+            boxes_tensor = torch.from_numpy(npz[f'{query_file_name}_boxes']).to(DEVICE)
+            scores_tensor = torch.from_numpy(npz[f'{query_file_name}_scores']).to(DEVICE)
+            print(f"[{backend}] Loaded features for {query_file_name}: {features_tensor.shape}")
             return {
-                'features': torch.from_numpy(npz[f'{query_file_name}_features']).to(DEVICE),
-                'boxes':    torch.from_numpy(npz[f'{query_file_name}_boxes']).to(DEVICE),
-                'scores':   torch.from_numpy(npz[f'{query_file_name}_scores']).to(DEVICE),
+                'features': features_tensor,
+                'boxes': boxes_tensor,
+                'scores': scores_tensor,
             }
-        except KeyError:
-            print(f"[{backend}] No features found for {query_file_name} in {OBJECT_FEATURES_FILE_PATHS[backend]}")
+        except KeyError as e:
+            print(f"[{backend}] No features found for {query_file_name} in {OBJECT_FEATURES_FILE_PATHS[backend]}: {e}")
             return {'features': None, 'boxes': None, 'scores': None}
 
     if IS_QUERY_DIR:
@@ -182,7 +193,7 @@ if __name__ == "__main__":
     parser.add_argument("--method",       type=str,  default="image", help="Detection method")
     parser.add_argument("--use_sahi",     action="store_true", default=False, help="Use SAHI for slicing")
     parser.add_argument("--qry_path",     type=str,  help="Query image path or directory")
-    parser.add_argument("--output_path",  type=str,  default=None, help="Path to save output")
+    parser.add_argument("--output_path",  type=str,  required=True, help="Path to save output")
     parser.add_argument("--model_name",   type=str,  default=MODEL_NAME,
                         help="HuggingFace model ID for OWLv2 (only used when owlv2 backend is selected)")
     parser.add_argument("--device",       type=str,  default=DEVICE, help="Device to use")
@@ -201,6 +212,7 @@ if __name__ == "__main__":
     parser.add_argument("--is_query_dir", action="store_true", help="Treat qry_path as a directory")
     args = parser.parse_args()
 
+    # Set module-level variables from arguments BEFORE calling main()
     METHOD     = args.method
     QRY_PATH   = args.qry_path
     OUTPUT_PATH = args.output_path

@@ -185,12 +185,14 @@ def get_owlv2_embedding_from_crop(crop: Image.Image, processor, model, device) -
 def get_bioclip_embedding_from_crop(crop: Image.Image, classifier) -> torch.Tensor:
     """
     Embed a GT-box crop with BioCLIP.
-    Returns an L2-normalised feature vector.
+    Returns an L2-normalised feature vector using F.normalize (consistent with proposal embeddings).
     """
     classifier.model.eval()
     with torch.no_grad():
-        emb = classifier.create_image_features([crop], normalize=True)  # (1, D)
-    return emb[0]
+        # Use normalize=False to get raw embeddings, then apply F.normalize for consistency
+        emb = classifier.create_image_features([crop], normalize=False)  # (1, D)
+    # Apply F.normalize to match proposal embedding normalization
+    return F.normalize(emb.cpu().float(), dim=-1)
 
 
 def get_dinov3_embedding_from_crop(crop: Image.Image, processor, model) -> torch.Tensor:
@@ -304,7 +306,7 @@ def extract_support_embeddings(
             # Store GT box with IOU score for optimization loop
             generated_boxes.append({
                 'image_path':    support['image_path'],
-                'bounding_box':  [x1_gt, y1_gt, x2_gt, y2_gt],
+                'bounding_box':  [best_box[0] + crop_x1, best_box[1] + crop_y1, best_box[2] + crop_x1, best_box[3] + crop_y1],
                 'class':         class_name,
                 'iou':           float(best_iou),
             })

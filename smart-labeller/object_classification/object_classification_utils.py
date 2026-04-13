@@ -126,6 +126,7 @@ def cosine_similarity_detection(
     # L2-normalise proposal features  (M, D)
     feats_norm = F.normalize(feats.float(), p=2, dim=-1)
     feat_dim = feats_norm.shape[-1]
+    print(f"Proposal features: {feats.shape} → {feats_norm.shape}")
     
     detections = []
     for class_name, support_embs in class_supports.items():

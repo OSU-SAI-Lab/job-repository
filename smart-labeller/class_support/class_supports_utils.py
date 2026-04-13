@@ -156,7 +156,7 @@ def load_embedding_model(backend: str, device, torch_dtype=None, model_name: str
     elif backend == "bioclip":
         return load_bioclip_model(device)
     elif backend == "dinov3":
-        return load_dinov3_model(DEFAULT_DINOV3_MODEL, device)
+        return load_dinov3_model(model_name or DEFAULT_DINOV3_MODEL, device)
     else:
         raise ValueError(f"Unknown embedding backend '{backend}'. Choose from: owlv2, bioclip, dinov3")
 
@@ -202,7 +202,7 @@ def get_dinov3_embedding_from_crop(crop: Image.Image, processor, model) -> torch
     """
     inputs = processor(images=crop, return_tensors="pt").to(model.device)
     with torch.inference_mode():
-        outputs = model(pixel_values=inputs["pixel_values"])
+        outputs = model(pixel_values=inputs["pixel_values"], normalized_embeds=False)
         emb = F.normalize(outputs.pooler_output, p=2, dim=-1)  # (1, D)
     return emb[0]
 

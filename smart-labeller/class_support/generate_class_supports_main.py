@@ -46,6 +46,7 @@ def main(crop_size: int, backends_to_run: list = None) -> tuple:
     if ANN_FILE_PATH is None:
         print("No annotation file provided.")
         return False, []
+            
 
     with open(ANN_FILE_PATH, "r") as f:
         support_examples = json.load(f).get("annotations", [])

@@ -1,10 +1,10 @@
 python object_classification_main.py \
-  --qry_path /fs/ess/PAS2699/object_detection_datasets/pratham/session_5/DJI_0208/partition_1 \
+  --qry_path /fs/ess/PAS2699/farmers_meet/query \
   --is_query_dir \
   --embedding_backends dinov3 \
-  --class_support_file_paths /fs/ess/PAS2699/brijesh/experimentation/mmla/output_se/class_supports/tensors/class_supports_dinov3_1024_20260331_223353.npz \
-  --object_features_file_paths /fs/ess/PAS2699/brijesh/experimentation/mmla/output_DJI_0208/proposals/tensors/features_dinov3_sam3_20260401_102137.npz \
-  --output_path /fs/ess/PAS2699/brijesh/experimentation/mmla/output_DJI_0208 \
+  --class_support_file_paths /fs/ess/PAS2699/farmers_meet/output5/class_supports/tensors/class_supports_dinov3_750_20260412_224421.npz \
+  --object_features_file_paths /fs/ess/PAS2699/farmers_meet/output5/proposals/tensors/features_dinov3_owlv2_20260412_224651.npz \
+  --output_path /fs/ess/PAS2699/farmers_meet/output5 \
   --similarity_threshold 0.1 \
   --objectness_threshold 0.1
 

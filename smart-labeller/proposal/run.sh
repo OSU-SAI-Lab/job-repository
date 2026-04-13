@@ -1,8 +1,10 @@
 python generate_proposals.py \
-  --proposers sam3 \
-  --image_dir /fs/ess/PAS2699/object_detection_datasets/pratham/session_5/DJI_0208/partition_1 \
-  --output_dir /fs/ess/PAS2699/brijesh/experimentation/mmla/output_DJI_0208 \
-  --embedders bioclip \
+  --proposers owlv2 sam3 \
+  --image_dir /fs/ess/PAS2699/farmers_meet/query \
+  --output_dir /fs/ess/PAS2699/farmers_meet/output5 \
+  --embedders bioclip dinov3 owlv2\
   --confidence 0.1 \
   --batch_size 1 \
-  # --is_sahi
+  --is_sahi \
+  --tile_size 1024 \
+  --overlap_ratio 0.2

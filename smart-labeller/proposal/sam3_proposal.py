@@ -121,6 +121,7 @@ def generate_proposals_tiled(
     batch_size=8,
     nms_iou_threshold=0.5,
     embedding_backend="dinov3",
+    model_id=None,
 ):
     """
     Generate bounding-box proposals for a list of images using SAM3,
@@ -149,7 +150,8 @@ def generate_proposals_tiled(
     image_paths = [str(p) for p in image_paths]
 
     # Load the chosen embedding model once
-    embedder = get_embedder(embedding_backend)
+    embedder_kwargs = {"model_id": model_id} if model_id is not None else {}
+    embedder = get_embedder(embedding_backend, **embedder_kwargs)
 
     # Use tiling only if SAHI is enabled
     if is_sahi:

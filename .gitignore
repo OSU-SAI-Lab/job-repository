@@ -24,3 +24,5 @@ TestResults.xml
 *.sif
 # Python cache
 __pycache__/
+# results folder
+results/

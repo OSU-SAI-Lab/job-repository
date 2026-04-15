@@ -1,6 +1,6 @@
 # job-repository
 A repository to store jobs that could be triggered through harvest workflows
 
-## Service Documentation
+## Directory Structure
 
-- SAM3 segmentation service deployment/run/API guide: [smart-labeller/sam3_service/README.md](smart-labeller/sam3_service/README.md)
+Smart Labeller - [documentation](smart-labeller/README.md)

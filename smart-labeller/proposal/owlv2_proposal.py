@@ -1,159 +1,150 @@
 """
-OWLv2-based tiled proposal generation.
+proposal/owlv2_proposal.py  –  OWLv2-based proposal generation.
 
-Slices images into overlapping tiles via OverlappingTileDataset,
-runs OWLv2 objectness inference in batches (no text query needed),
-then stitches predictions back to original image coordinates using NMS.
+Embedding space
+---------------
+Native OWLv2 anchor features come from model.image_embedder (patch tokens,
+dim=768 for large model's hidden size BEFORE the class head).  However, for
+cosine-similarity classification we need embeddings from vision_model.pooler_output
+(dim=1024).  Therefore:
 
-The OWLv2 image-embedder produces native backbone features for every
-anchor, so features can come either from:
-  - "owlv2"   – the native OWLv2 anchor features  (dim 768, fastest)
-  - "dinov3"  – DINOv3 crops via embedding_utils   (dim 384 / 768)
-  - "bioclip" – BioCLIP crops via embedding_utils  (dim 512)
+  embedding_backend='owlv2'  → re-crops each box and embeds via OWLv2Embedder
+                                (vision_model.pooler_output, dim=1024)
+  embedding_backend='dinov3' → re-crops and embeds via DINOv3Embedder
+  embedding_backend='bioclip'→ re-crops and embeds via BioCLIPEmbedder
 
-Output contract (matches optimize_objectness_threshold/ot_main.py):
-    results[image_path] = {
-        "features": np.ndarray  (K, C)  – per-box embeddings
-        "boxes":    np.ndarray  (K, 4)  – [x1, y1, x2, y2] pixel coords
-        "scores":   np.ndarray  (K,)    – objectness scores
-    }
-    or None for images with no detections.
+The native patch-token features (768-dim) are used ONLY for objectness scoring
+and box prediction; they are never saved as the final proposal embeddings.
+
+Memory / speed optimisations
+-----------------------------
+- Model loaded once, reused across all images.
+- Pixel values stay on GPU throughout the batch loop.
+- A single .cpu() + .numpy() call per batch item after NMS.
+- No unnecessary tensor round-trips between CPU and GPU.
 """
+
+from __future__ import annotations
 
 import sys
 import collections
 from pathlib import Path
+from typing import List, Optional
 
 import numpy as np
 import torch
 from torchvision.ops import nms as torchvision_nms
 from torch.utils.data import DataLoader
 from transformers import Owlv2Processor, Owlv2ForObjectDetection
+from PIL import Image
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from OverlappingTileDataset import OverlappingTileDataset
-from proposal.embedding_utils import get_embedder
-from PIL import Image
+from proposal.embedding_utils import get_embedder, DEVICE, TORCH_DTYPE
 
-# ---------------------------------------------------------------------------
-# Model initialisation
-# ---------------------------------------------------------------------------
-
-is_cuda = torch.cuda.is_available()
-print(f"CUDA Available: {is_cuda}")
-DEVICE     = "cuda" if is_cuda else "cpu"
-TORCH_DTYPE = torch.float16 if is_cuda else torch.float32
+# ──────────────────────────────────────────────────────────────────────────────
+# Model initialisation (lazy, cached)
+# ──────────────────────────────────────────────────────────────────────────────
 
 DEFAULT_MODEL_ID = "google/owlv2-large-patch14-ensemble"
 
-_owlv2_processor: Owlv2Processor | None = None
-_owlv2_model:     Owlv2ForObjectDetection | None = None
-_loaded_model_id: str | None = None
+_processor: Optional[Owlv2Processor]            = None
+_model:     Optional[Owlv2ForObjectDetection]   = None
+_loaded_id: Optional[str]                       = None
 
 
 def _load_owlv2(model_id: str):
-    """Lazy-load OWLv2 once; reload only if model_id changes."""
-    global _owlv2_processor, _owlv2_model, _loaded_model_id
-    if _loaded_model_id == model_id:
-        return _owlv2_processor, _owlv2_model
-    print(f"[OWLv2] Loading model: {model_id}")
-    _owlv2_processor = Owlv2Processor.from_pretrained(model_id)
-    _owlv2_model = (
+    global _processor, _model, _loaded_id
+    if _loaded_id == model_id:
+        return _processor, _model
+    print(f"[OWLv2] Loading {model_id}...")
+    _processor = Owlv2Processor.from_pretrained(model_id)
+    _model = (
         Owlv2ForObjectDetection
-        .from_pretrained(model_id, dtype=TORCH_DTYPE,
+        .from_pretrained(model_id, torch_dtype=TORCH_DTYPE,
                          device_map="auto" if DEVICE == "cuda" else "cpu")
         .eval()
     )
-    _loaded_model_id = model_id
-    return _owlv2_processor, _owlv2_model
+    _loaded_id = model_id
+    return _processor, _model
 
 
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
+# ──────────────────────────────────────────────────────────────────────────────
+# Inference helper
+# ──────────────────────────────────────────────────────────────────────────────
 
-def _run_owlv2_on_batch(
-    processor,
-    model,
-    pil_tiles: list,
+@torch.no_grad()
+def _infer_batch(
+    processor: Owlv2Processor,
+    model: Owlv2ForObjectDetection,
+    pil_tiles: List[Image.Image],
     objectness_threshold: float,
     nms_iou_threshold: float,
 ):
     """
-    Run OWLv2 objectness inference on a batch of PIL tile images.
+    Run OWLv2 objectness inference on a batch of PIL tiles.
 
     Returns per-tile lists of:
-        native_feats_list : list of (M, C) tensors  – OWLv2 anchor features
-        boxes_list        : list of (M, 4) tensors  – pixel [x1,y1,x2,y2]
-        scores_list       : list of (M,)  tensors   – objectness scores
-        shapes            : list of (H, W) tuples   – original tile shapes
+        boxes_list  : list of (M, 4) CPU float32 tensors  [x1,y1,x2,y2] pixels
+        scores_list : list of (M,)   CPU float32 tensors  objectness scores
+        shapes      : list of (H, W) tuples
     """
-    np_tiles = [np.array(img) for img in pil_tiles]
-    pv = processor(images=pil_tiles, return_tensors="pt", padding=False).pixel_values
-    pv = pv.to(DEVICE, dtype=TORCH_DTYPE)
+    shapes = [(img.height, img.width) for img in pil_tiles]
 
-    with torch.no_grad():
-        fmap        = model.image_embedder(pv)[0]          # (B, Hf, Wf, C)
-        B, Hf, Wf, C = fmap.shape
-        query_feats = fmap.view(B, Hf * Wf, C)            # (B, N, C)
-        obj_scores  = model.objectness_predictor(query_feats).sigmoid().squeeze(-1)  # (B, N)
-        raw_boxes   = model.box_predictor(
-            query_feats, fmap, interpolate_pos_encoding=False
-        )                                                   # (B, N, 4) cxcywh normalised
+    inputs = processor(images=pil_tiles, return_tensors="pt", padding=False)
+    pv = inputs["pixel_values"].to(DEVICE, dtype=TORCH_DTYPE)
 
-    native_feats_list = []
-    boxes_list        = []
-    scores_list       = []
+    fmap          = model.image_embedder(pv)[0]         # (B, Hf, Wf, C)
+    B, Hf, Wf, C = fmap.shape
+    query_feats   = fmap.view(B, Hf * Wf, C)            # (B, N, C)
+    obj_scores    = (
+        model.objectness_predictor(query_feats)
+        .sigmoid()
+        .squeeze(-1)                                     # (B, N)
+    )
+    raw_boxes = model.box_predictor(
+        query_feats, fmap, interpolate_pos_encoding=False
+    )                                                    # (B, N, 4) cxcywh normalised
+
+    boxes_list  = []
+    scores_list = []
 
     for i in range(B):
-        scores_i = obj_scores[i]          # (N,)
-        feats_i  = query_feats[i]         # (N, C)
-        boxes_i  = raw_boxes[i]           # (N, 4)
+        orig_h, orig_w = shapes[i]
+        padded = max(orig_h, orig_w)
 
-        mask = scores_i > objectness_threshold
+        mask = obj_scores[i] > objectness_threshold
         if not mask.any():
-            native_feats_list.append(torch.zeros((0, C)))
             boxes_list.append(torch.zeros((0, 4)))
             scores_list.append(torch.zeros((0,)))
             continue
 
-        k_feats  = feats_i[mask]
-        k_scores = scores_i[mask]
-        k_boxes  = boxes_i[mask]          # cxcywh normalised
+        k_scores = obj_scores[i][mask]      # (M,)
+        k_boxes  = raw_boxes[i][mask]       # (M, 4) cxcywh norm
 
-        # Convert cxcywh (normalised) → xyxy (pixels)
-        orig_h, orig_w = np_tiles[i].shape[:2]
-        padded = max(orig_h, orig_w)
-        cx, cy, w, h = k_boxes.unbind(-1)
-        cx, cy, w, h = cx * padded, cy * padded, w * padded, h * padded
-        boxes_px = torch.stack([
-            (cx - w / 2).clamp(0, orig_w),
-            (cy - h / 2).clamp(0, orig_h),
-            (cx + w / 2).clamp(0, orig_w),
-            (cy + h / 2).clamp(0, orig_h),
-        ], dim=1)
+        # cxcywh normalised → xyxy pixels
+        cx, cy, bw, bh = k_boxes.unbind(-1)
+        cx = cx * padded; cy = cy * padded
+        bw = bw * padded; bh = bh * padded
+        x1 = (cx - bw / 2).clamp(0, orig_w)
+        y1 = (cy - bh / 2).clamp(0, orig_h)
+        x2 = (cx + bw / 2).clamp(0, orig_w)
+        y2 = (cy + bh / 2).clamp(0, orig_h)
+        boxes_px = torch.stack([x1, y1, x2, y2], dim=1)  # (M, 4) still on GPU
 
-        # Per-tile NMS to thin out dense anchors before stitching
+        # Per-tile NMS
         keep = torchvision_nms(boxes_px, k_scores, nms_iou_threshold)
-        native_feats_list.append(k_feats[keep].cpu().float())
         boxes_list.append(boxes_px[keep].cpu().float())
         scores_list.append(k_scores[keep].cpu().float())
 
-    return native_feats_list, boxes_list, scores_list
+    return boxes_list, scores_list, shapes
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Global NMS after tile stitching
+# ──────────────────────────────────────────────────────────────────────────────
 
 def _global_nms(boxes, scores, feats, iou_threshold=0.5):
-    """
-    NMS across all stitched tile results for one image.
-
-    Args:
-        boxes  : np.ndarray (N, 4)
-        scores : np.ndarray (N,)
-        feats  : np.ndarray (N, C)
-
-    Returns:
-        (feats, boxes, scores) as np.ndarray, or (None, None, None).
-    """
     if len(boxes) == 0:
         return None, None, None
     b = torch.from_numpy(boxes).float()
@@ -163,13 +154,13 @@ def _global_nms(boxes, scores, feats, iou_threshold=0.5):
     return f[keep].numpy(), b[keep].numpy(), s[keep].numpy()
 
 
-# ---------------------------------------------------------------------------
+# ──────────────────────────────────────────────────────────────────────────────
 # Public API
-# ---------------------------------------------------------------------------
+# ──────────────────────────────────────────────────────────────────────────────
 
 def generate_proposals_tiled(
     image_paths,
-    text_prompt="visual",          # unused for OWLv2 objectness – kept for API compat
+    text_prompt="visual",           # unused — kept for API compat
     confidence_threshold=0.1,
     is_sahi=False,
     tile_size=960,
@@ -180,140 +171,93 @@ def generate_proposals_tiled(
     model_id=DEFAULT_MODEL_ID,
 ):
     """
-    Generate bounding-box proposals for a list of images using OWLv2
-    objectness scoring, with optional tiled inference via SAHI.
+    Generate bounding-box proposals for a list of images using OWLv2 objectness.
 
-    Args:
-        image_paths:          List of Path / str image file paths.
-        text_prompt:          Ignored (OWLv2 uses class-agnostic objectness).
-                              Kept for API compatibility with generate_proposals.py.
-        confidence_threshold: Minimum objectness score to keep a box.
-        is_sahi:              Enable SAHI (Sliced Aided Hyper Inference).
-                              If False, processes whole image. If True, tiles and stitches.
-        tile_size:            Tile size in pixels (only used when is_sahi=True).
-        overlap_ratio:        Fractional overlap between tiles (only used when is_sahi=True).
-        batch_size:           Number of tiles/images per inference call.
-        nms_iou_threshold:    IoU threshold for global stitching NMS.
-        embedding_backend:    'owlv2' (native anchor feats) | 'dinov3' | 'bioclip'.
-                              'owlv2' is fastest; others re-crop & re-embed each box.
-        model_id:             HuggingFace model ID for OWLv2.
+    All embeddings are produced via the unified embedder from embedding_utils.py,
+    ensuring they match the class-support vector space used in classification.
 
-    Returns:
-        Dict mapping image_path (str) -> {
-            'features': np.ndarray (K, C),
-            'boxes':    np.ndarray (K, 4),   # [x1, y1, x2, y2] pixels
-            'scores':   np.ndarray (K,),
-        }
-        Images with no detections map to None.
+    Returns
+    -------
+    dict: image_path (str) -> {"features": ndarray(K,D),
+                                "boxes":    ndarray(K,4),
+                                "scores":   ndarray(K,)}
+          or None for images with no detections.
     """
     image_paths = [str(p) for p in image_paths]
-
     processor, model = _load_owlv2(model_id)
 
-    # Load external embedder only when not using native OWLv2 features
-    external_embedder = None
-    if embedding_backend != "owlv2":
-        external_embedder = get_embedder(embedding_backend)
-        print(f"[OWLv2] Using external embedding backend: {embedding_backend}")
-    else:
-        print(f"[OWLv2] Using native OWLv2 anchor features")
+    # Load embedding model once
+    embedder = get_embedder(embedding_backend)
+    print(f"[OWLv2] Embedding backend: {embedding_backend}")
 
-    # Use tiling only if SAHI is enabled
+    # Build dataset
     if is_sahi:
-        dataset = OverlappingTileDataset(
-            image_paths=image_paths,
-            tile_size=tile_size,
-            overlap_ratio=overlap_ratio,
-        )
+        dataset = OverlappingTileDataset(image_paths, tile_size, overlap_ratio)
+        loader  = DataLoader(dataset, batch_size=batch_size,
+                             shuffle=False, collate_fn=lambda x: x)
+        print(f"[OWLv2] SAHI | tiles={len(dataset)}, batch={batch_size}")
     else:
-        # Whole-image mode: treat entire image as single "tile"
         dataset = []
-        for img_idx, img_path in enumerate(image_paths):
-            img = Image.open(img_path).convert("RGB")
-            w, h = img.size
+        for idx, p in enumerate(image_paths):
+            img = Image.open(p).convert("RGB")
             dataset.append({
-                "image": img,
-                "metadata": {
-                    "img_idx": img_idx,
-                    "coords": torch.tensor([0, 0], dtype=torch.float32),
-                }
+                "image":    img,
+                "metadata": {"img_idx": idx,
+                              "coords": torch.tensor([0, 0, img.width, img.height])},
             })
+        loader = [dataset[i: i + batch_size] for i in range(0, len(dataset), batch_size)]
+        print(f"[OWLv2] Whole-image | images={len(dataset)}, batch={batch_size}")
 
-    # img_idx -> accumulated numpy arrays before stitching
-    img_accum = collections.defaultdict(lambda: {
-        "boxes":  [],
-        "scores": [],
-        "feats":  [],
-    })
-
-    if is_sahi:
-        print(f"[OWLv2] SAHI enabled | Total tiles: {len(dataset)} "
-              f"(batch_size={batch_size}, tile_size={tile_size}, overlap={overlap_ratio})")
-        loader = DataLoader(
-            dataset,
-            batch_size=batch_size,
-            shuffle=False,
-            collate_fn=lambda x: x,   # keep as list of dicts
-        )
-    else:
-        print(f"[OWLv2] Processing {len(dataset)} whole images (SAHI disabled)")
-        # For whole-image mode, batch images directly
-        loader = [dataset[i:i + batch_size] for i in range(0, len(dataset), batch_size)]
+    # Accumulator: img_idx → {boxes, scores, feats}
+    accum = collections.defaultdict(lambda: {"boxes": [], "scores": [], "feats": []})
 
     for batch_idx, batch in enumerate(loader):
-        tile_images = [item["image"]               for item in batch]
-        coords_list = [item["metadata"]["coords"]   for item in batch]
-        img_idxs    = [item["metadata"]["img_idx"]  for item in batch]
+        tile_images = [item["image"]                     for item in batch]
+        coords_list = [item["metadata"]["coords"]        for item in batch]
+        img_idxs    = [int(item["metadata"]["img_idx"])  for item in batch]
 
-        native_feats_list, boxes_list, scores_list = _run_owlv2_on_batch(
+        boxes_list, scores_list, _ = _infer_batch(
             processor, model, tile_images, confidence_threshold, nms_iou_threshold
         )
 
-        for tile_img, native_feats, tile_boxes, tile_scores, coords, img_idx in zip(
-            tile_images, native_feats_list, boxes_list, scores_list, coords_list, img_idxs
+        for tile_img, tile_boxes, tile_scores, coords, img_idx in zip(
+            tile_images, boxes_list, scores_list, coords_list, img_idxs
         ):
             if tile_boxes.numel() == 0:
                 continue
 
-            # Shift tile-local boxes → original image coords
-            ox, oy = coords[0].item(), coords[1].item()
-            offset = torch.tensor([ox, oy, ox, oy], dtype=tile_boxes.dtype)
-            global_boxes = (tile_boxes + offset).cpu()
+            # Shift to global image coords
+            ox, oy = float(coords[0]), float(coords[1])
+            offset      = torch.tensor([ox, oy, ox, oy])
+            global_boxes = (tile_boxes + offset).numpy()   # (M, 4)
 
-            # Choose feature source
-            if external_embedder is not None:
-                # Re-crop detected boxes from the tile and embed externally
-                local_boxes = tile_boxes.tolist()
-                feats_np = external_embedder.embed_boxes(tile_img, local_boxes).numpy()
-            else:
-                # Use native OWLv2 anchor features directly
-                feats_np = native_feats.numpy()
+            # Embed using the unified embedder (same space as class supports)
+            local_boxes = tile_boxes.tolist()
+            feats_np    = embedder.embed_boxes(tile_img, local_boxes).numpy()  # (M, D)
 
-            img_accum[img_idx]["boxes"].append(global_boxes.numpy())
-            img_accum[img_idx]["scores"].append(tile_scores.numpy())
-            img_accum[img_idx]["feats"].append(feats_np)
+            accum[img_idx]["boxes"].append(global_boxes)
+            accum[img_idx]["scores"].append(tile_scores.numpy())
+            accum[img_idx]["feats"].append(feats_np)
 
         print(f"  [OWLv2] Batch {batch_idx + 1}/{len(loader)} done")
 
-    # Stitch: concatenate all tile results per image, then global NMS
-    results = {path: None for path in image_paths}
+    # Stitch + global NMS
+    results = {p: None for p in image_paths}
+    for img_idx, a in accum.items():
+        boxes_raw  = np.vstack(a["boxes"])
+        scores_raw = np.hstack(a["scores"])
+        feats_raw  = np.vstack(a["feats"])
 
-    for img_idx, accum in img_accum.items():
-        boxes_raw  = np.vstack(accum["boxes"])   # (N, 4)
-        scores_raw = np.hstack(accum["scores"])  # (N,)
-        feats_raw  = np.vstack(accum["feats"])   # (N, C)
-
-        feats_final, boxes_final, scores_final = _global_nms(
+        feats_f, boxes_f, scores_f = _global_nms(
             boxes_raw, scores_raw, feats_raw, nms_iou_threshold
         )
-
-        if boxes_final is not None:
+        if boxes_f is not None:
             results[image_paths[img_idx]] = {
-                "features": feats_final,   # (K, C)
-                "boxes":    boxes_final,   # (K, 4)
-                "scores":   scores_final,  # (K,)
+                "features": feats_f,
+                "boxes":    boxes_f,
+                "scores":   scores_f,
             }
             print(f"  [OWLv2] {Path(image_paths[img_idx]).name}: "
-                  f"{len(boxes_raw)} raw → {len(boxes_final)} after NMS")
+                  f"{len(boxes_raw)} raw → {len(boxes_f)} after NMS")
 
     return results

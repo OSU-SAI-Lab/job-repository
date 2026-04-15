@@ -1,9 +1,9 @@
 Bootstrap: docker
-From: python:3.9-bullseye
+From: python:3.12-bullseye
 
 %files
-    object_detection_main.py /app/object_detection_main.py
-    object_detection_utils.py /app/object_detection_utils.py
+    object_classification_main.py /app/object_classification_main.py
+    object_classification_utils.py /app/object_classification_utils.py
     requirements.txt /app/requirements.txt # Ensure this file exists, even if empty
 
 %environment
@@ -13,7 +13,7 @@ From: python:3.9-bullseye
 
 %post
     # Ensure the script is executable
-    echo "Setting up environment for object_detection_main.py"
+    echo "Setting up environment for object_classification_main.py"
     apt-get update
     echo "Installing libGL and other common X11/graphics dependencies for OpenCV..."
     # Installing a broader set of libraries that OpenCV often needs
@@ -34,19 +34,17 @@ From: python:3.9-bullseye
     cd /app
     pip install -r requirements.txt
     echo "Python dependencies installed."
-    echo "Making object_detection_main.py executable"
-    chmod -R 777 /app/object_detection_main.py
-    chmod -R 777 /app/object_detection_utils.py
+    echo "Making object_classification_main.py executable"
+    chmod -R 777 /app/object_classification_main.py
+    chmod -R 777 /app/object_classification_utils.py
     echo "Setup complete."
 
 %runscript
-    echo "object_detection_main.py"
+    echo "object_classification_main.py"
     cd /app
-    python3 object_detection_main.py "$@"
-
-
+    python3 object_classification_main.py "$@"
 %labels
     Maintainer "Brijesh Nanda <brundayogananda.1@osu.edu>"
     Version "1.0"
-    Appname "OWL v2 Object Detector"
-    Description "object detection using OWL v2 model"   
+    Appname "Object Classifier"
+    Description "object classification using OWL v2 model"   

@@ -2,10 +2,10 @@ numpy
 opencv-python
 Pillow
 torch
-transformers 
+transformers>=5.1.0
 scipy
 torchvision
 tqdm
 sahi
-bioclip
+pybioclip
 open-clip-torch

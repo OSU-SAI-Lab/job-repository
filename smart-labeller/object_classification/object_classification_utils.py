@@ -1,139 +1,124 @@
+"""
+object_classification/object_classification_utils.py
+
+Classification of proposals against class-support embeddings.
+
+Two detection paths
+-------------------
+cosine_similarity_detection (bioclip, dinov3, owlv2)
+    Pure embedding cosine similarity.  Works for any backend whose supports
+    and proposals live in the same vector space.
+
+    OWLv2 now also goes through this path using vision_model.pooler_output
+    embeddings (dim=1024).  The old image_guided_object_detection path that
+    called model.class_predictor is removed — it required proposals to be
+    OWLv2 patch tokens (not pooler vectors) and caused the (52,768)x(1024,S)
+    dimension mismatch.
+
+Dimension safety
+-----------------
+Support tensors are validated to be (N, D) on load.  If the npz was saved
+transposed as (D, N) (D > N), they are corrected automatically.
+"""
+
+from __future__ import annotations
+
 import torch
 import torch.nn.functional as F
-import torchvision.ops as ops
 from torchvision.ops import nms
-import warnings
-from transformers import Owlv2Processor, Owlv2ForObjectDetection
-import numpy as np
 
-def load_model_and_processor(model_name: str, device: torch.device, torch_data_type: torch.dtype):
-    processor = Owlv2Processor.from_pretrained(model_name)
-    model = (
-        Owlv2ForObjectDetection
-        .from_pretrained(model_name, dtype = torch_data_type, device_map="auto" if device == "cuda" else "cpu")
-    ).eval()
-    return processor, model
 
-def image_guided_object_detection(
-    processor,
-    model,
-    device,
-    torch_data_type,
-    class_supports: dict,
-    object_features: dict,
-    batches=None,
-    np_img=None,
-    use_sahi: bool = False,
-    objectness_threshold: float = 0.1,
-    similarity_threshold: float = 0.2,   
-    nms_iou_threshold: float = 0.5,
-):
-    # if not isinstance(object_features, (tuple, list)) or len(object_features) != 3:
-    #     raise ValueError("object_features must be a tuple or list of (feats, boxes, obj_scores)")
-    feats = object_features['features']
-    boxes = object_features['boxes']
-    obj_scores = object_features['scores']
-    if feats is None:
-        return []
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-    obj_keep = obj_scores.float() > objectness_threshold
-    if obj_keep.sum() > 100:
-        topk = 100
-        _, idxs = obj_scores.topk(topk)
-        feats = feats[idxs]
-        boxes = boxes[idxs]
-        obj_scores = obj_scores[idxs]
-        
-    print(f"Features: {feats}")
-    print(f"Boxes: {boxes}")
-    print(f"Objectness Scores: {obj_scores}")    
 
-    detections = []
-    M, D = feats.shape
-    potential_feats = feats.unsqueeze(0)            # (1, M, D)
-
-    for class_name, support_embs in class_supports.items():
-        # ensure (S, D)
-        if support_embs.dim() == 1:
-            support_embs = support_embs.unsqueeze(0)
-        query_embeds = support_embs.unsqueeze(0)  # (1, S, D)
-
-        with torch.no_grad(), torch.amp.autocast(device_type="cuda", dtype=torch.float16):
-            pred_logits, _ = model.class_predictor(
-                potential_feats,
-                query_embeds=query_embeds,
-                query_mask=None
-            )
-        logits = pred_logits.squeeze(0)
-
-        logits_fp32   = logits.float()
-
-        max_logits, _ = logits_fp32.max(dim=1)    # (M,)
-        sim_scores    = torch.sigmoid(max_logits) # (M,)
-        # print(sim_scores)
-
-        keep = (obj_scores.float() > objectness_threshold) & \
-                (sim_scores          > similarity_threshold)
-        idxs = torch.nonzero(keep, as_tuple=True)[0]
-
-        for i in idxs.tolist():
-            detections.append({
-                "bounding_box":  boxes[i].tolist(),
-                "score": float(sim_scores[i]),   # use sim_scores, not probs
-                "class": class_name
-            })
-
-    if not detections:
-        return []
-
-    boxes_tensor  = torch.tensor([d["bounding_box"] for d in detections], dtype=torch.float32, device=device)
-    scores_tensor = torch.tensor([d["score"] for d in detections], dtype=torch.float32, device=device)
-    keep_inds = nms(boxes_tensor, scores_tensor, iou_threshold=nms_iou_threshold)
-
-    return [detections[i] for i in keep_inds.tolist()]
-
+# ──────────────────────────────────────────────────────────────────────────────
+# Core: cosine-similarity detection (all backends)
+# ──────────────────────────────────────────────────────────────────────────────
 
 def cosine_similarity_detection(
     class_supports: dict,
     object_features: dict,
-    device,
+    device: str = DEVICE,
     objectness_threshold: float = 0.1,
     similarity_threshold: float = 0.2,
     nms_iou_threshold: float = 0.5,
 ) -> list:
     """
-    Embedding-only detection via cosine similarity.
-    Used for BioCLIP and DINOv3 backends where there is no class_predictor.
+    Classify proposals against class supports via cosine similarity.
+
+    Args
+    ----
+    class_supports   : {class_name -> Tensor (N_s, D)}  L2-normed support embeddings
+    object_features  : {"features": Tensor (N_p, D),
+                        "boxes":    Tensor (N_p, 4),
+                        "scores":   Tensor (N_p,)}
+    device           : torch device string
+    objectness_threshold : minimum objectness score to keep a proposal
+    similarity_threshold : minimum cosine sim to emit a detection
+    nms_iou_threshold    : IoU threshold for final NMS
+
+    Returns
+    -------
+    list of {"bounding_box", "score", "class"} dicts after NMS
     """
-    feats      = object_features['features']
-    boxes      = object_features['boxes']
-    obj_scores = object_features['scores']
-    if feats is None:
+    feats      = object_features.get("features")
+    boxes      = object_features.get("boxes")
+    obj_scores = object_features.get("scores")
+
+    if feats is None or feats.numel() == 0:
         return []
 
-    # Objectness filtering (keep top-100)
-    obj_keep = obj_scores.float() > objectness_threshold
-    if obj_keep.sum() > 100:
-        _, idxs = obj_scores.topk(100)
-        feats      = feats[idxs]
-        boxes      = boxes[idxs]
-        obj_scores = obj_scores[idxs]
+    # Move to device once
+    feats      = feats.to(device).float()
+    boxes      = boxes.to(device).float()
+    obj_scores = obj_scores.to(device).float()
 
-    # L2-normalise proposal features  (M, D)
-    feats_norm = F.normalize(feats.float(), p=2, dim=-1)
+    # Objectness pre-filter: keep top-100
+    obj_mask = obj_scores > objectness_threshold
+    if obj_mask.sum() == 0:
+        return []
+    if obj_mask.sum() > 100:
+        _, top_idxs = obj_scores.topk(100)
+        feats      = feats[top_idxs]
+        boxes      = boxes[top_idxs]
+        obj_scores = obj_scores[top_idxs]
+    else:
+        feats      = feats[obj_mask]
+        boxes      = boxes[obj_mask]
+        obj_scores = obj_scores[obj_mask]
+
+    # L2-normalise proposals once for all classes
+    feats_norm = F.normalize(feats, p=2, dim=-1)   # (M, D)
+    feat_dim   = feats_norm.shape[-1]
 
     detections = []
+
     for class_name, support_embs in class_supports.items():
+        # Ensure (N_s, D)
+        support_embs = support_embs.to(device).float()
         if support_embs.dim() == 1:
             support_embs = support_embs.unsqueeze(0)
-        support_norm = F.normalize(support_embs.float().to(device), p=2, dim=-1)  # (S, D)
 
-        # (M, S) cosine similarities → take max over supports
-        sim_matrix = feats_norm @ support_norm.T
-        sim_scores, _ = sim_matrix.max(dim=1)   # (M,)
+        # Auto-fix transposed (D, N_s) saves
+        if support_embs.shape[-1] != feat_dim:
+            if support_embs.shape[0] == feat_dim:
+                print(f"  [WARN] '{class_name}' support transposed ({support_embs.shape}) — fixing.")
+                support_embs = support_embs.T
+            else:
+                print(
+                    f"  [ERROR] '{class_name}' support dim mismatch: "
+                    f"proposal={feat_dim}, support last_dim={support_embs.shape[-1]}. Skipping."
+                )
+                continue
 
-        keep = (obj_scores.float() > objectness_threshold) & (sim_scores > similarity_threshold)
-        for i in torch.nonzero(keep, as_tuple=True)[0].tolist():
+        support_norm = F.normalize(support_embs, p=2, dim=-1)  # (N_s, D)
+
+        # (M, D) @ (D, N_s) → (M, N_s) → max per proposal
+        sim_matrix = feats_norm @ support_norm.T          # (M, N_s)
+        sim_scores, _ = sim_matrix.max(dim=1)              # (M,)
+
+        keep_mask = sim_scores > similarity_threshold
+        for i in torch.nonzero(keep_mask, as_tuple=True)[0].tolist():
             detections.append({
                 "bounding_box": boxes[i].tolist(),
                 "score":        float(sim_scores[i]),
@@ -143,17 +128,25 @@ def cosine_similarity_detection(
     if not detections:
         return []
 
-    boxes_t  = torch.tensor([d["bounding_box"] for d in detections], dtype=torch.float32, device=device)
-    scores_t = torch.tensor([d["score"]        for d in detections], dtype=torch.float32, device=device)
-    keep_inds = nms(boxes_t, scores_t, iou_threshold=nms_iou_threshold)
-    return [detections[i] for i in keep_inds.tolist()]
+    # Final NMS across all classes
+    boxes_t  = torch.tensor([d["bounding_box"] for d in detections],
+                             dtype=torch.float32, device=device)
+    scores_t = torch.tensor([d["score"] for d in detections],
+                             dtype=torch.float32, device=device)
+    keep_idxs = nms(boxes_t, scores_t, iou_threshold=nms_iou_threshold)
+    return [detections[i] for i in keep_idxs.tolist()]
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Dispatcher
+# ──────────────────────────────────────────────────────────────────────────────
 
 def run_detection_for_backend(
     backend: str,
     class_supports: dict,
     object_features: dict,
-    device,
+    device: str = DEVICE,
+    # legacy kwargs kept for API compat — no longer used
     owlv2_model_bundle=None,
     torch_data_type=None,
     objectness_threshold: float = 0.1,
@@ -161,35 +154,20 @@ def run_detection_for_backend(
     nms_iou_threshold: float = 0.5,
 ) -> list:
     """
-    Dispatch to the correct similarity function for the given backend.
+    Dispatch to cosine_similarity_detection for all backends.
 
-    owlv2   → image_guided_object_detection  (uses model.class_predictor)
-    bioclip → cosine_similarity_detection
-    dinov3  → cosine_similarity_detection
+    All three backends (owlv2, bioclip, dinov3) now use pure cosine similarity
+    because all their embedders produce vectors in the same vision-backbone space.
+    The old image_guided_object_detection (class_predictor path) is removed.
     """
-    if backend == "owlv2":
-        if owlv2_model_bundle is None:
-            raise ValueError("owlv2_model_bundle (processor, model) required for owlv2 backend")
-        processor, model = owlv2_model_bundle
-        return image_guided_object_detection(
-            processor=processor,
-            model=model,
-            device=device,
-            torch_data_type=torch_data_type,
-            class_supports=class_supports,
-            object_features=object_features,
-            objectness_threshold=objectness_threshold,
-            similarity_threshold=similarity_threshold,
-            nms_iou_threshold=nms_iou_threshold,
-        )
-    elif backend in ("bioclip", "dinov3"):
-        return cosine_similarity_detection(
-            class_supports=class_supports,
-            object_features=object_features,
-            device=device,
-            objectness_threshold=objectness_threshold,
-            similarity_threshold=similarity_threshold,
-            nms_iou_threshold=nms_iou_threshold,
-        )
-    else:
+    if backend not in ("owlv2", "bioclip", "dinov3"):
         raise ValueError(f"Unknown backend '{backend}'. Choose from: owlv2, bioclip, dinov3")
+
+    return cosine_similarity_detection(
+        class_supports=class_supports,
+        object_features=object_features,
+        device=device,
+        objectness_threshold=objectness_threshold,
+        similarity_threshold=similarity_threshold,
+        nms_iou_threshold=nms_iou_threshold,
+    )

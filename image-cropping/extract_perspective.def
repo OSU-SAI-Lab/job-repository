@@ -1,0 +1,39 @@
+Bootstrap: docker
+From: python:3.9-bullseye
+
+%files
+    Extract_perspective.py /app/Extract_perspective.py
+    requirements.txt /app/requirements.txt
+
+%environment
+    export PATH="/usr/local/bin:/app:$PATH"
+    export LC_ALL=C.UTF-8
+    export LANG=C.UTF-8
+
+%post
+    echo "Setting up environment for Extract_perspective.py"
+    apt-get update
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        libjpeg62-turbo \
+        libopenjp2-7 \
+        libtiff5 \
+        zlib1g
+    rm -rf /var/lib/apt/lists/*
+
+    cd /app
+    python3 -m pip install --upgrade pip
+    pip install --no-cache-dir -r requirements.txt
+
+    chmod 755 /app/Extract_perspective.py
+
+%runscript
+    echo "Running Extract_perspective.py"
+    cd /app
+    python3 Extract_perspective.py "$@"
+
+%labels
+    Maintainer "ICICLE Harvest Team"
+    Version "1.0"
+    Appname "Image Cropper"
+    Description "Crop images from percentage ROI coordinates while preserving metadata when available."

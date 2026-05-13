@@ -1,0 +1,43 @@
+Bootstrap: docker
+From: python:3.9-slim
+
+%labels
+    Author Parth
+    Version 3.0
+    Description "Generate custom-size spray-zone shapefiles with enhanced GPS support and parallel processing."
+
+%post
+    # 1) System deps for Fiona / GeoPandas
+    apt-get update && apt-get install -y --no-install-recommends \
+      gdal-bin libgdal-dev libproj-dev build-essential \
+      libgeos-dev libgeos++-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+    # 2) Python deps with specific versions for stability
+    pip install --no-cache-dir \
+      "geopandas>=0.14.0" \
+       "shapely>=2.0.0" \
+       "pyproj>=3.4.0" \
+       "fiona>=1.8.0" \
+       "exifread>=3.1.0" \
+       "numpy>=1.21.0"
+
+    # 3) Prepare /opt/shapefile and copy in the script
+    mkdir -p /opt/shapefile
+    chmod 755 /opt/shapefile
+
+    # (the %files stanza below will drop Custom-shapefile.py at /opt/shapefile/)
+    # so now force the perms you need:
+    chmod 755 /opt/shapefile/Custom-shapefile.py
+
+%files
+    Custom-shapefile.py /opt/shapefile/Custom-shapefile.py
+
+%environment
+    export PYTHONUNBUFFERED=1
+    export PATH=/usr/local/bin:$PATH
+    export OMP_NUM_THREADS=10
+    export MKL_NUM_THREADS=10
+
+%runscript
+    exec python /opt/shapefile/Custom-shapefile.py "$@"

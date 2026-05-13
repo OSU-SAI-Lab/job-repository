@@ -1,0 +1,29 @@
+name: dinov3-classifier
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+
+dependencies:
+  # Core
+  - python=3.9
+  - pip
+
+  # Numerics & utils
+  - numpy=1.24.*
+  - pillow=10.*
+  - matplotlib=3.8.*
+  - tqdm>=4.65
+
+  # PyTorch + CUDA
+  - pytorch=2.1.*
+  - torchvision=0.16.*
+  - torchaudio=2.1.*
+  - pytorch-cuda=11.8
+
+  # HF stack
+  - transformers=4.44.*
+  - tokenizers>=0.15
+  - safetensors>=0.4
+  - huggingface_hub>=0.20

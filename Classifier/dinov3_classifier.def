@@ -1,0 +1,61 @@
+Bootstrap: docker
+From: python:3.9-slim
+
+%labels
+    Author Parth
+    Version 1.2
+    Description "DINOv3 Object Classifier (Transformers >=4.56 + PyTorch >=2.2; CUDA 12.1 wheels)."
+
+%post
+    apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      build-essential \
+      git \
+      git-lfs \
+      libgl1 \
+      libglib2.0-0 \
+      libsm6 \
+      libxext6 \
+      libxrender1 \
+      libfreetype6 \
+      libpng16-16 \
+    && git lfs install \
+    && rm -rf /var/lib/apt/lists/*
+
+    python -m pip install --upgrade pip
+
+    # ---- PyTorch CUDA 12.1 stack (works on CPU too; add --nv for GPU) ----
+    python -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu121 \
+      torch==2.4.1 \
+      torchvision==0.19.1 \
+      torchaudio==2.4.1
+
+    # ---- HF stack with native DINOv3 support ----
+    python -m pip install --no-cache-dir \
+      "transformers>=4.56.2" \
+      "huggingface_hub>=0.25.0" \
+      "tokenizers>=0.15" \
+      "safetensors>=0.4" \
+      "pillow==10.0.0" \
+      "numpy==1.24.3" \
+      "matplotlib==3.8.2"
+
+    mkdir -p /opt/dinov3 /opt/hf_cache
+    chmod 755 /opt/dinov3
+    chmod -R 777 /opt/hf_cache
+
+    chmod 755 /opt/dinov3/dinov3_classifier.py || true
+
+%files
+    dinov3_classifier.py /opt/dinov3/dinov3_classifier.py
+
+%environment
+    export PYTHONUNBUFFERED=1
+    export PATH=/usr/local/bin:$PATH
+    export HF_HOME=/opt/hf_cache
+    export OMP_NUM_THREADS=16
+    export MKL_NUM_THREADS=16
+    export HF_HUB_DISABLE_TELEMETRY=1
+
+%runscript
+    exec python /opt/dinov3/dinov3_classifier.py "$@"

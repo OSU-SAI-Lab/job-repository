@@ -1,0 +1,64 @@
+Bootstrap: docker
+From: python:3.9-slim
+
+%labels
+    Author Parth
+    Version 1.0
+    Description "OWLv2 Object Classifier/Identifier with configurable class detection and metadata preservation."
+
+%post
+    set -eux
+    apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      build-essential \
+      libgl1 \
+      libglib2.0-0 \
+      libsm6 \
+      libxext6 \
+      libxrender1 \
+      libgomp1 \
+      wget \
+      curl \
+      git \
+    && rm -rf /var/lib/apt/lists/*
+
+    python -m pip install --upgrade pip
+
+    # PyTorch with CUDA 12.1 wheels (GPU). Use --nv when running the container.
+    python -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu121 \
+     torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1
+
+    python -m pip install --no-cache-dir \
+      transformers==4.44.0 \
+      pillow==10.0.0 \
+      exifread==3.1.0 \
+      numpy==1.24.3 \
+      scipy==1.11.2 \
+      opencv-python==4.8.0.74 \
+      tqdm==4.65.0 \
+      psutil==5.9.8 \
+      nvidia-ml-py3==7.352.0
+
+    # YOLOE / SAM3 paths in unified detector (Patra 32 / 1); Hub downloads for SAM3
+    python -m pip install --no-cache-dir ultralytics huggingface-hub
+    
+    python -m pip install --no-cache-dir git+https://github.com/ultralytics/CLIP.git
+
+    mkdir -p /opt/owlv2
+    chmod 755 /opt/owlv2
+    chmod 755 /opt/owlv2/owlv2_classifier.py || true
+
+%files
+    owlv2_classifier.py /opt/owlv2/owlv2_classifier.py
+
+%environment
+    export PYTHONUNBUFFERED=1
+    export PATH=/usr/local/bin:$PATH
+    export OMP_NUM_THREADS=16
+    export MKL_NUM_THREADS=16
+    export CUDA_LAUNCH_BLOCKING=0
+    export TORCH_CUDNN_V8_API_ENABLED=1
+    export TOKENIZERS_PARALLELISM=false
+
+%runscript
+    exec python /opt/owlv2/owlv2_classifier.py "$@"

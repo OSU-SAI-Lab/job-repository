@@ -1,0 +1,16 @@
+name: shapefile-env
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.9
+  - geopandas
+  - fiona
+  - shapely
+  - pyproj
+  - exifread
+  - numpy
+  - pandas
+  - pip
+  - pip:
+    - pyproj  

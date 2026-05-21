@@ -26,10 +26,13 @@ Memory / speed optimisations
 
 from __future__ import annotations
 
+import logging
 import sys
 import collections
 from pathlib import Path
 from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 import numpy as np
 import torch
@@ -57,7 +60,7 @@ def _load_owlv2(model_id: str):
     global _processor, _model, _loaded_id
     if _loaded_id == model_id:
         return _processor, _model
-    print(f"[OWLv2] Loading {model_id}...")
+    logger.info(f"Loading {model_id}...")
     _processor = Owlv2Processor.from_pretrained(model_id)
     _model = (
         Owlv2ForObjectDetection
@@ -188,14 +191,14 @@ def generate_proposals_tiled(
 
     # Load embedding model once
     embedder = get_embedder(embedding_backend)
-    print(f"[OWLv2] Embedding backend: {embedding_backend}")
+    logger.info(f"Embedding backend: {embedding_backend}")
 
     # Build dataset
     if is_sahi:
         dataset = OverlappingTileDataset(image_paths, tile_size, overlap_ratio)
         loader  = DataLoader(dataset, batch_size=batch_size,
                              shuffle=False, collate_fn=lambda x: x)
-        print(f"[OWLv2] SAHI | tiles={len(dataset)}, batch={batch_size}")
+        logger.info(f"SAHI mode | tiles={len(dataset)}, batch_size={batch_size}")
     else:
         dataset = []
         for idx, p in enumerate(image_paths):
@@ -206,7 +209,7 @@ def generate_proposals_tiled(
                               "coords": torch.tensor([0, 0, img.width, img.height])},
             })
         loader = [dataset[i: i + batch_size] for i in range(0, len(dataset), batch_size)]
-        print(f"[OWLv2] Whole-image | images={len(dataset)}, batch={batch_size}")
+        logger.info(f"Whole-image mode | images={len(dataset)}, batch_size={batch_size}")
 
     # Accumulator: img_idx → {boxes, scores, feats}
     accum = collections.defaultdict(lambda: {"boxes": [], "scores": [], "feats": []})
@@ -239,7 +242,7 @@ def generate_proposals_tiled(
             accum[img_idx]["scores"].append(tile_scores.numpy())
             accum[img_idx]["feats"].append(feats_np)
 
-        print(f"  [OWLv2] Batch {batch_idx + 1}/{len(loader)} done")
+        logger.debug(f"Batch {batch_idx + 1}/{len(loader)} done")
 
     # Stitch + global NMS
     results = {p: None for p in image_paths}
@@ -257,7 +260,7 @@ def generate_proposals_tiled(
                 "boxes":    boxes_f,
                 "scores":   scores_f,
             }
-            print(f"  [OWLv2] {Path(image_paths[img_idx]).name}: "
-                  f"{len(boxes_raw)} raw → {len(boxes_f)} after NMS")
+            logger.info(f"{Path(image_paths[img_idx]).name}: "
+                        f"{len(boxes_raw)} raw → {len(boxes_f)} after NMS")
 
     return results

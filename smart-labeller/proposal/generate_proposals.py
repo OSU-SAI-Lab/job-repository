@@ -20,6 +20,7 @@ Usage:
 """
 
 import argparse
+import logging
 import os
 import sys
 from pathlib import Path
@@ -76,22 +77,30 @@ if __name__ == "__main__":
                              "Note: If proposer is 'sam3', OWLv2 cannot be used as embedder.")
     parser.add_argument("--model_id",      type=str,   default=None,
                         help="HuggingFace model ID override for the chosen backend")
+    parser.add_argument("--log_level",     type=str,   default="INFO",
+                        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+                        help="Logging verbosity (default: INFO). Use DEBUG to see per-batch progress.")
 
     args = parser.parse_args()
 
+    logging.basicConfig(
+        level=getattr(logging, args.log_level.upper()),
+        format="%(asctime)s | %(levelname)-8s | %(name)-30s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    logger = logging.getLogger(__name__)
+
     # Validation: SAM3 proposer cannot use OWLv2 embedder - remove it and continue
     if "sam3" in args.proposers and "owlv2" in args.embedders:
-        print("⚠️  WARNING: OWLv2 embedder cannot be used with SAM3 proposer.")
-        print("            Removing OWLv2 from embedders and proceeding...")
+        logger.warning("OWLv2 embedder cannot be used with SAM3 proposer. Removing OWLv2 from embedders.")
         args.embedders = [e for e in args.embedders if e != "owlv2"]
         if not args.embedders:
-            print("ERROR: No valid embedders left after removing OWLv2.")
-            print("       Use --embedders dinov3 bioclip (or other non-OWLv2 options)")
+            logger.error("No valid embedders left after removing OWLv2. Use --embedders dinov3 bioclip.")
             sys.exit(1)
 
     # Auto-enable: If OWLv2 is a proposer, ensure OWLv2 is an embedder for it
     if "owlv2" in args.proposers and "owlv2" not in args.embedders:
-        print("ℹ️  INFO: OWLv2 proposer detected. Adding OWLv2 as embedder automatically...")
+        logger.info("OWLv2 proposer detected — adding OWLv2 as embedder automatically.")
         args.embedders = list(args.embedders) + ["owlv2"]
 
     os.makedirs(args.output_dir, exist_ok=True)
@@ -101,10 +110,10 @@ if __name__ == "__main__":
     image_files = sorted([f for f in image_dir.iterdir()
                           if f.suffix.lower() in image_extensions])
 
-    print(f"Found {len(image_files)} images")
-    print(f"Proposers: {', '.join(args.proposers)}")
-    print(f"Embedders: {', '.join(args.embedders)}")
-    print(f"SAHI: {args.is_sahi}")
+    logger.info(f"Found {len(image_files)} images in {image_dir}")
+    logger.info(f"Proposers: {', '.join(args.proposers)}")
+    logger.info(f"Embedders: {', '.join(args.embedders)}")
+    logger.info(f"SAHI: {args.is_sahi}")
 
     # Only use tiling parameters if SAHI is enabled
     tile_size = args.tile_size if args.is_sahi else None
@@ -116,11 +125,12 @@ if __name__ == "__main__":
 
     timestamp = time.strftime("%Y%m%d_%H%M%S")
 
+    pipeline_start = time.time()
+
     # Process each proposer
     for proposer in args.proposers:
-        print(f"\n{'='*60}")
-        print(f"Processing proposer: {proposer}")
-        print(f"{'='*60}")
+        logger.info(f"--- Proposer: {proposer} ---")
+        proposer_start = time.time()
 
         generate_proposals_tiled = get_proposer(proposer)
 
@@ -139,7 +149,7 @@ if __name__ == "__main__":
 
         # For each embedder, generate embeddings
         for embedder in args.embedders:
-            print(f"\n  → Generating embeddings with {embedder}...")
+            logger.info(f"Generating embeddings with {embedder}...")
 
             all_data        = {}   # merged dict fed to np.savez
             all_annotations = []   # list of per-box annotation dicts
@@ -147,7 +157,7 @@ if __name__ == "__main__":
             for image_path, det in results.items():
                 name = Path(image_path).name
                 if det is None:
-                    print(f"    No detections for {name}")
+                    logger.debug(f"No detections for {name}")
                     continue
 
                 features = det["features"]
@@ -177,12 +187,14 @@ if __name__ == "__main__":
 
             if all_data:
                 np.savez(npz_path, **all_data)
-                print(f"    Saved features → {npz_path}")
+                logger.info(f"Saved features ({len(all_data) // 3} images) → {npz_path}")
 
             with open(json_path, "w") as f:
                 json.dump({"annotations": all_annotations}, f, indent=2)
-            print(f"    Saved {len(all_annotations)} box annotations → {json_path}")
+            logger.info(f"Saved {len(all_annotations)} box annotations → {json_path}")
 
-    print(f"\n{'='*60}")
-    print("All proposers and embedders processed successfully!")
-    print(f"{'='*60}")
+        elapsed = time.time() - proposer_start
+        logger.info(f"Proposer '{proposer}' finished in {elapsed:.1f}s")
+
+    total_elapsed = time.time() - pipeline_start
+    logger.info(f"All proposers and embedders processed successfully in {total_elapsed:.1f}s")

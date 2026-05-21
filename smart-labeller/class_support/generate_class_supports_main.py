@@ -131,8 +131,13 @@ if __name__ == "__main__":
     EMBEDDING_BACKENDS = args.embedding_backend
     MODEL_NAME         = args.model_name
     DEVICE           = args.device
-    CROP_SIZE_LIST   = json.loads(args.crop_size) if args.crop_size.startswith('[') else [args.crop_size]
-    CROP_SIZE_LIST   = sorted(map(int, CROP_SIZE_LIST), reverse=True)
+    # Parse crop_size: can be "1024" or "[1024,760]" or "[1024, 760]"
+    crop_size_str = args.crop_size.strip()
+    if crop_size_str.startswith('['):
+        CROP_SIZE_LIST = json.loads(crop_size_str)  # Handles spaces fine
+    else:
+        CROP_SIZE_LIST = [int(crop_size_str)]  # Single value
+    CROP_SIZE_LIST = sorted(map(int, CROP_SIZE_LIST), reverse=True)
     
     # Separate OWLv2 from other backends
     owlv2_backends = ["owlv2"] if "owlv2" in EMBEDDING_BACKENDS else []

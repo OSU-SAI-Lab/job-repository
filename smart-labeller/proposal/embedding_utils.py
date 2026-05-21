@@ -30,10 +30,13 @@ BaseEmbedder.embed_boxes(image, boxes) -> Tensor (N, D) CPU float32 L2-normed
 
 from __future__ import annotations
 
+import logging
 import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import List, Union
+
+logger = logging.getLogger(__name__)
 
 import torch
 import torch.nn.functional as F
@@ -88,7 +91,7 @@ class BioCLIPEmbedder(BaseEmbedder):
         self.batch_size = batch_size
         self._clf = BaseClassifier(device=DEVICE)
         self._clf.model.eval()
-        print("[BioCLIP] Model loaded (dim=512)")
+        logger.info(f"Loaded BioCLIP ViT-B/16 on {DEVICE} | dim=512")
 
     def embed(self, images: Union[Image.Image, List[Image.Image]]) -> torch.Tensor:
         if not isinstance(images, list):
@@ -125,7 +128,7 @@ class DINOv3Embedder(BaseEmbedder):
         self._processor = AutoImageProcessor.from_pretrained(model_id)
         self._model = AutoModel.from_pretrained(model_id).to(DEVICE).eval()
         dim = self._model.config.hidden_size
-        print(f"[DINOv3] Loaded {model_id} | dim={dim}")
+        logger.info(f"Loaded {model_id} on {DEVICE} | dim={dim}")
 
     def embed(self, images: Union[Image.Image, List[Image.Image]]) -> torch.Tensor:
         if not isinstance(images, list):
@@ -166,7 +169,7 @@ class OWLv2Embedder(BaseEmbedder):
             .to(DEVICE)
             .eval()
         )
-        print(f"[OWLv2] Loaded {model_id} | vision backbone pooler dim=1024")
+        logger.info(f"Loaded {model_id} on {DEVICE} | vision backbone pooler_output dim=1024")
 
     def embed(self, images: Union[Image.Image, List[Image.Image]]) -> torch.Tensor:
         if not isinstance(images, list):

@@ -14,6 +14,7 @@ from PIL import Image
 import redis
 import pickle
 import io
+import cv2
 
 # --- HUGGING FACE IMPORTS ---
 from transformers import Sam3Model, Sam3Processor
@@ -256,23 +257,23 @@ def iou_xyxy(a, b) -> float:
     return float(inter / union) if union > 0 else 0.0
 
 def mask_to_boundary_points(mask: np.ndarray, max_points: int = 256) -> list[list[int]]:
-    """Extract boundary contour points from a binary mask using numpy only."""
+    """Extract ordered contour points from a binary mask."""
     if mask is None or not np.any(mask):
         return []
-    padded = np.pad(mask, 1, constant_values=False)
-    up    = padded[:-2, 1:-1]
-    down  = padded[2:,  1:-1]
-    left  = padded[1:-1, :-2]
-    right = padded[1:-1, 2:]
-    boundary = mask & ~(up & down & left & right)
-    y_coords, x_coords = np.where(boundary)
-    if len(x_coords) == 0:
+    contours, _ = cv2.findContours(
+        mask.astype(np.uint8),
+        cv2.RETR_EXTERNAL,
+        cv2.CHAIN_APPROX_SIMPLE,
+    )
+    if not contours:
         return []
-    if len(x_coords) > max_points:
-        indices = np.linspace(0, len(x_coords) - 1, max_points, dtype=int)
-        x_coords = x_coords[indices]
-        y_coords = y_coords[indices]
-    return [[int(x), int(y)] for x, y in zip(x_coords, y_coords)]
+    # Pick the largest contour (the main object boundary)
+    contour = max(contours, key=cv2.contourArea)
+    points = contour.squeeze(axis=1)  # (N,1,2) → (N,2)
+    if len(points) > max_points:
+        indices = np.round(np.linspace(0, len(points) - 1, max_points)).astype(int)
+        points = points[indices]
+    return [[int(p[0]), int(p[1])] for p in points]
 
 def nms_bbox_candidates(candidates: list[dict], iou_threshold: float = 0.5) -> list[dict]:
     """Simple NMS over candidates with keys: x_min,y_min,x_max,y_max,confidence."""

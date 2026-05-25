@@ -20,6 +20,7 @@ RUN pip3 install --no-cache-dir \
     Pillow \
     numpy \
     redis \
+    opencv-python \
     huggingface-hub
 
 RUN pip3 install git+https://github.com/huggingface/transformers    

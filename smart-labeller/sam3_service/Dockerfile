@@ -11,8 +11,8 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Install dependencies
-RUN pip3 install --no-cache-dir \
-    "torch>=2.6.0" torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124 && \
+RUN pip3 install --no-cache-dir --pre \
+    torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu124 && \
     pip3 install --no-cache-dir \
     fastapi \
     uvicorn \

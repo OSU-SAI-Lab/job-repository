@@ -1,4 +1,4 @@
-FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 
 # Install Python
 RUN apt-get update && apt-get install -y \
@@ -12,7 +12,7 @@ WORKDIR /app
 
 # Install dependencies
 RUN pip3 install --no-cache-dir \
-    torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124 && \
+    "torch>=2.6.0" torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124 && \
     pip3 install --no-cache-dir \
     fastapi \
     uvicorn \
@@ -20,7 +20,7 @@ RUN pip3 install --no-cache-dir \
     Pillow \
     numpy \
     redis \
-    opencv-python \
+    opencv-python-headless \
     huggingface-hub
 
 RUN pip3 install git+https://github.com/huggingface/transformers    

@@ -88,7 +88,9 @@ class SegmentationRequest(BaseModel):
     patch_size: int | None = None
     crop_size: int | None = None
     overlap_ratio: float = 0.2
-    
+    threshold: float = 0.1
+    mask_threshold: float = 0.1
+
     @field_validator('text_prompts')
     @classmethod
     def validate_text_prompts(cls, v):
@@ -111,6 +113,13 @@ class SegmentationRequest(BaseModel):
     def validate_overlap_ratio(cls, v):
         if v < 0 or v >= 1:
             raise ValueError("overlap_ratio must be in [0, 1)")
+        return v
+
+    @field_validator('threshold', 'mask_threshold')
+    @classmethod
+    def validate_thresholds(cls, v):
+        if v < 0 or v > 1:
+            raise ValueError("threshold/mask_threshold must be in [0, 1]")
         return v
 
     @model_validator(mode='after')
@@ -295,7 +304,7 @@ def nms_bbox_candidates(candidates: list[dict], iou_threshold: float = 0.5) -> l
             kept.append(cand)
     return kept
 
-def run_text_inference_on_image(raw_image: Image.Image, prompt: str):
+def run_text_inference_on_image(raw_image: Image.Image, prompt: str, threshold: float = 0.1, mask_threshold: float = 0.1):
     """Runs SAM3 concept model on one image and one prompt. Returns list[(x1,y1,x2,y2,score)]."""
     inputs = sam3_processor(
         images=raw_image,
@@ -309,8 +318,8 @@ def run_text_inference_on_image(raw_image: Image.Image, prompt: str):
     target_sizes = inputs.get("original_sizes").tolist()
     results = sam3_processor.post_process_instance_segmentation(
         outputs,
-        threshold=0.3,
-        mask_threshold=0.3,
+        threshold=threshold,
+        mask_threshold=mask_threshold,
         target_sizes=target_sizes
     )[0]
 
@@ -435,7 +444,7 @@ async def predict_with_text_batch(req: SegmentationRequest, token: str, start_ti
             candidates = []
             for x1, y1, x2, y2 in tile_coords:
                 tile_img = raw_image.crop((x1, y1, x2, y2))
-                tile_dets = run_text_inference_on_image(tile_img, prompt)
+                tile_dets = run_text_inference_on_image(tile_img, prompt, req.threshold, req.mask_threshold)
                 for bx1, by1, bx2, by2, score, seg_pts in tile_dets:
                     candidates.append({
                         "x_min": int(bx1 + x1),

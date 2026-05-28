@@ -333,6 +333,9 @@ def run_text_inference_on_image(raw_image: Image.Image, prompt: str, threshold: 
             mask_np = mask.cpu().numpy() > 0 if hasattr(mask, "numpy") else np.array(mask) > 0
             seg_points = mask_to_boundary_points(mask_np)
             out.append((int(x_min), int(y_min), int(x_max), int(y_max), score, seg_points))
+
+    del inputs, outputs
+    torch.cuda.empty_cache()
     return out
 
 def run_point_inference_on_image(raw_image: Image.Image, x: int, y: int):
@@ -468,8 +471,10 @@ async def predict_with_text_batch(req: SegmentationRequest, token: str, start_ti
                 "time_seconds": round(prompt_time, 4)
             }
             print(f"   Found {len(prompt_bboxes)} objects in {prompt_time:.4f}s")
-            
+            torch.cuda.empty_cache()
+
         except Exception as e:
+            torch.cuda.empty_cache()
             print(f"   ❌ Error processing prompt '{prompt}': {e}")
             per_prompt_stats[prompt] = {"error": str(e), "detections": 0}
     

@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.4.1-cudnn9-runtime-ubuntu22.04
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 
 # Install Python
 RUN apt-get update && apt-get install -y \
@@ -16,7 +16,7 @@ WORKDIR /app
 
 # Install dependencies
 RUN pip3 install --no-cache-dir \
-    torch --index-url https://download.pytorch.org/whl/cu124 && \
+    torch torchvision --index-url https://download.pytorch.org/whl/cu124 && \
     pip3 install --no-cache-dir \
     fastapi \
     uvicorn \

@@ -321,7 +321,7 @@ def run_text_inference_on_image(raw_image: Image.Image, prompt: str):
             score = float(results["scores"][i].item())
             x_min, y_min, x_max, y_max = box.tolist()
             mask = results["masks"][i]
-            mask_np = mask.numpy() > 0 if hasattr(mask, "numpy") else np.array(mask) > 0
+            mask_np = mask.cpu().numpy() > 0 if hasattr(mask, "numpy") else np.array(mask) > 0
             seg_points = mask_to_boundary_points(mask_np)
             out.append((int(x_min), int(y_min), int(x_max), int(y_max), score, seg_points))
     return out

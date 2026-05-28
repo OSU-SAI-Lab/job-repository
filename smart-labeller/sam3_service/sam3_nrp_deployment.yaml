@@ -71,7 +71,7 @@ spec:
                   - NVIDIA-A10 #k8s-a6000-01.csus.edu
       containers:
       - name: api
-        image: brijeshnanda/annotation_assistor:v3-amd64
+        image: brijeshnanda/annotation_assistor:v8-amd64
         ports:
         - containerPort: 2128
         env:

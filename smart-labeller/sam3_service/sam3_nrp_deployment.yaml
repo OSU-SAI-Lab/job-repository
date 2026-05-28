@@ -114,8 +114,10 @@ metadata:
   name: sam3-ingress
   annotations:
     # Optional: increase timeout for model inference (default is usually 60s)
-    haproxy-ingress-proxy.timeout: "300s"
-    haproxy.router.openshift.io/timeout: "300s"
+    # haproxy-ingress-proxy.timeout: "300s"
+    # haproxy.router.openshift.io/timeout: "300s"
+    haproxy-ingress.github.io/timeout-server: "300s"
+    haproxy-ingress.github.io/timeout-connect: "300s"
 spec:
   ingressClassName: haproxy  # NRP requires this specific class
   rules:

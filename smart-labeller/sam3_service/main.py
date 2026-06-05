@@ -14,6 +14,7 @@ from PIL import Image
 import redis
 import pickle
 import io
+import cv2
 
 # --- HUGGING FACE IMPORTS ---
 from transformers import Sam3Model, Sam3Processor
@@ -87,7 +88,9 @@ class SegmentationRequest(BaseModel):
     patch_size: int | None = None
     crop_size: int | None = None
     overlap_ratio: float = 0.2
-    
+    threshold: float = 0.1
+    mask_threshold: float = 0.1
+
     @field_validator('text_prompts')
     @classmethod
     def validate_text_prompts(cls, v):
@@ -110,6 +113,13 @@ class SegmentationRequest(BaseModel):
     def validate_overlap_ratio(cls, v):
         if v < 0 or v >= 1:
             raise ValueError("overlap_ratio must be in [0, 1)")
+        return v
+
+    @field_validator('threshold', 'mask_threshold')
+    @classmethod
+    def validate_thresholds(cls, v):
+        if v < 0 or v > 1:
+            raise ValueError("threshold/mask_threshold must be in [0, 1]")
         return v
 
     @model_validator(mode='after')
@@ -142,6 +152,7 @@ class BoundingBox(BaseModel):
     confidence: float
     label: str  # The specific text prompt that found this object
     prompt_index: int  # Index in the text_prompts array
+    segmentation: List[List[int]] = Field(default_factory=list)  # [[x, y], ...] boundary points
 
 class SegmentationResponse(BaseModel):
     bboxes: List[BoundingBox]
@@ -254,6 +265,25 @@ def iou_xyxy(a, b) -> float:
     union = area_a + area_b - inter
     return float(inter / union) if union > 0 else 0.0
 
+def mask_to_boundary_points(mask: np.ndarray, max_points: int = 256) -> list[list[int]]:
+    """Extract ordered contour points from a binary mask."""
+    if mask is None or not np.any(mask):
+        return []
+    contours, _ = cv2.findContours(
+        mask.astype(np.uint8),
+        cv2.RETR_EXTERNAL,
+        cv2.CHAIN_APPROX_SIMPLE,
+    )
+    if not contours:
+        return []
+    # Pick the largest contour (the main object boundary)
+    contour = max(contours, key=cv2.contourArea)
+    points = contour.squeeze(axis=1)  # (N,1,2) → (N,2)
+    if len(points) > max_points:
+        indices = np.round(np.linspace(0, len(points) - 1, max_points)).astype(int)
+        points = points[indices]
+    return [[int(p[0]), int(p[1])] for p in points]
+
 def nms_bbox_candidates(candidates: list[dict], iou_threshold: float = 0.5) -> list[dict]:
     """Simple NMS over candidates with keys: x_min,y_min,x_max,y_max,confidence."""
     if not candidates:
@@ -274,7 +304,7 @@ def nms_bbox_candidates(candidates: list[dict], iou_threshold: float = 0.5) -> l
             kept.append(cand)
     return kept
 
-def run_text_inference_on_image(raw_image: Image.Image, prompt: str):
+def run_text_inference_on_image(raw_image: Image.Image, prompt: str, threshold: float = 0.1, mask_threshold: float = 0.1):
     """Runs SAM3 concept model on one image and one prompt. Returns list[(x1,y1,x2,y2,score)]."""
     inputs = sam3_processor(
         images=raw_image,
@@ -288,8 +318,8 @@ def run_text_inference_on_image(raw_image: Image.Image, prompt: str):
     target_sizes = inputs.get("original_sizes").tolist()
     results = sam3_processor.post_process_instance_segmentation(
         outputs,
-        threshold=0.3,
-        mask_threshold=0.3,
+        threshold=threshold,
+        mask_threshold=mask_threshold,
         target_sizes=target_sizes
     )[0]
 
@@ -299,7 +329,13 @@ def run_text_inference_on_image(raw_image: Image.Image, prompt: str):
             box = results["boxes"][i]
             score = float(results["scores"][i].item())
             x_min, y_min, x_max, y_max = box.tolist()
-            out.append((int(x_min), int(y_min), int(x_max), int(y_max), score))
+            mask = results["masks"][i]
+            mask_np = mask.cpu().numpy() > 0 if hasattr(mask, "numpy") else np.array(mask) > 0
+            seg_points = mask_to_boundary_points(mask_np)
+            out.append((int(x_min), int(y_min), int(x_max), int(y_max), score, seg_points))
+
+    del inputs, outputs
+    torch.cuda.empty_cache()
     return out
 
 def run_point_inference_on_image(raw_image: Image.Image, x: int, y: int):
@@ -337,7 +373,8 @@ def run_point_inference_on_image(raw_image: Image.Image, x: int, y: int):
 
     x_min, x_max = int(np.min(x_indices)), int(np.max(x_indices))
     y_min, y_max = int(np.min(y_indices)), int(np.max(y_indices))
-    return x_min, y_min, x_max, y_max, float(scores[best_idx])
+    seg_points = mask_to_boundary_points(best_mask)
+    return x_min, y_min, x_max, y_max, float(scores[best_idx]), seg_points
 
 # --- MAIN ENDPOINT ---
 
@@ -410,8 +447,8 @@ async def predict_with_text_batch(req: SegmentationRequest, token: str, start_ti
             candidates = []
             for x1, y1, x2, y2 in tile_coords:
                 tile_img = raw_image.crop((x1, y1, x2, y2))
-                tile_dets = run_text_inference_on_image(tile_img, prompt)
-                for bx1, by1, bx2, by2, score in tile_dets:
+                tile_dets = run_text_inference_on_image(tile_img, prompt, req.threshold, req.mask_threshold)
+                for bx1, by1, bx2, by2, score, seg_pts in tile_dets:
                     candidates.append({
                         "x_min": int(bx1 + x1),
                         "y_min": int(by1 + y1),
@@ -419,7 +456,8 @@ async def predict_with_text_batch(req: SegmentationRequest, token: str, start_ti
                         "y_max": int(by2 + y1),
                         "confidence": round(score, 4),
                         "label": prompt,
-                        "prompt_index": idx
+                        "prompt_index": idx,
+                        "segmentation": [[px + x1, py + y1] for px, py in seg_pts]
                     })
 
             merged = nms_bbox_candidates(candidates, iou_threshold=0.5)
@@ -433,8 +471,10 @@ async def predict_with_text_batch(req: SegmentationRequest, token: str, start_ti
                 "time_seconds": round(prompt_time, 4)
             }
             print(f"   Found {len(prompt_bboxes)} objects in {prompt_time:.4f}s")
-            
+            torch.cuda.empty_cache()
+
         except Exception as e:
+            torch.cuda.empty_cache()
             print(f"   ❌ Error processing prompt '{prompt}': {e}")
             per_prompt_stats[prompt] = {"error": str(e), "detections": 0}
     
@@ -480,7 +520,7 @@ async def predict_with_point(req: SegmentationRequest, token: str, start_time: f
                 total_time_seconds=round(time.time() - start_time, 4)
             )
 
-        bx1, by1, bx2, by2, score = point_result
+        bx1, by1, bx2, by2, score, seg_pts = point_result
         bbox = BoundingBox(
             x_min=int(bx1 + x1),
             y_min=int(by1 + y1),
@@ -488,7 +528,8 @@ async def predict_with_point(req: SegmentationRequest, token: str, start_time: f
             y_max=int(by2 + y1),
             confidence=score,
             label=f"point({req.x},{req.y})",
-            prompt_index=0
+            prompt_index=0,
+            segmentation=[[px + x1, py + y1] for px, py in seg_pts]
         )
 
         return SegmentationResponse(
@@ -566,15 +607,16 @@ async def predict_with_point(req: SegmentationRequest, token: str, start_time: f
             model="SAM3-Tracker",
             total_time_seconds=round(time.time() - start_time, 4)
         )
-    
+
     x_min, x_max = int(np.min(x_indices)), int(np.max(x_indices))
     y_min, y_max = int(np.min(y_indices)), int(np.max(y_indices))
-    
+
     bbox = BoundingBox(
         x_min=x_min, y_min=y_min, x_max=x_max, y_max=y_max,
         confidence=float(scores[best_idx]),
         label=f"point({req.x},{req.y})",
-        prompt_index=0
+        prompt_index=0,
+        segmentation=mask_to_boundary_points(best_mask)
     )
     
     total_time = time.time() - start_time

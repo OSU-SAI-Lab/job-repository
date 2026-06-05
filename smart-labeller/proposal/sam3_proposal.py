@@ -29,6 +29,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 import numpy as np
+from tqdm import tqdm
 import torch
 from torchvision.ops import nms as torchvision_nms
 from torch.utils.data import DataLoader
@@ -158,7 +159,7 @@ def generate_proposals_tiled(
 
     accum = collections.defaultdict(lambda: {"boxes": [], "scores": [], "feats": []})
 
-    for batch_idx, batch in enumerate(loader):
+    for batch_idx, batch in enumerate(tqdm(loader, desc="Processing batches")):
         tile_images = [item["image"]                     for item in batch]
         coords_list = [item["metadata"]["coords"]        for item in batch]
         img_idxs    = [int(item["metadata"]["img_idx"])  for item in batch]

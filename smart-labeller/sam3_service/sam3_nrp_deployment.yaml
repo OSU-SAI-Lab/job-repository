@@ -71,7 +71,7 @@ spec:
                   - NVIDIA-A10 #k8s-a6000-01.csus.edu
       containers:
       - name: api
-        image: brijeshnanda/annotation_assistor:v3-amd64
+        image: brijeshnanda/annotation_assistor:v8-amd64
         ports:
         - containerPort: 2128
         env:
@@ -84,6 +84,8 @@ spec:
           value: "redis-service"    # Service name resolves automatically
         - name: REDIS_PORT
           value: "6379"
+        - name: PYTORCH_CUDA_ALLOC_CONF
+          value: "expandable_segments:True"
         resources:
           requests:
             cpu: "8"
@@ -114,8 +116,10 @@ metadata:
   name: sam3-ingress
   annotations:
     # Optional: increase timeout for model inference (default is usually 60s)
-    haproxy-ingress-proxy.timeout: "300s"
-    haproxy.router.openshift.io/timeout: "300s"
+    # haproxy-ingress-proxy.timeout: "300s"
+    # haproxy.router.openshift.io/timeout: "300s"
+    haproxy-ingress.github.io/timeout-server: "300s"
+    haproxy-ingress.github.io/timeout-connect: "300s"
 spec:
   ingressClassName: haproxy  # NRP requires this specific class
   rules:

@@ -84,6 +84,8 @@ spec:
           value: "redis-service"    # Service name resolves automatically
         - name: REDIS_PORT
           value: "6379"
+        - name: PYTORCH_CUDA_ALLOC_CONF
+          value: "expandable_segments:True"
         resources:
           requests:
             cpu: "8"

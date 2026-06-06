@@ -64,6 +64,7 @@ def cosine_similarity_detection(
     feats      = object_features.get("features")
     boxes      = object_features.get("boxes")
     obj_scores = object_features.get("scores")
+    masks      = object_features.get("masks")  # list of (H,W) bool numpy arrays, or None
 
     if feats is None or feats.numel() == 0:
         return []
@@ -73,19 +74,23 @@ def cosine_similarity_detection(
     boxes      = boxes.to(device).float()
     obj_scores = obj_scores.to(device).float()
 
-    # Objectness pre-filter: keep top-100
+    # Objectness pre-filter: keep top-100; apply same filter to masks list
     obj_mask = obj_scores > objectness_threshold
     if obj_mask.sum() == 0:
         return []
     if obj_mask.sum() > 100:
         _, top_idxs = obj_scores.topk(100)
+        top_idx_list = top_idxs.tolist()
         feats      = feats[top_idxs]
         boxes      = boxes[top_idxs]
         obj_scores = obj_scores[top_idxs]
+        masks_filtered = [masks[i] for i in top_idx_list] if masks is not None else None
     else:
+        obj_mask_list = obj_mask.cpu().tolist()
         feats      = feats[obj_mask]
         boxes      = boxes[obj_mask]
         obj_scores = obj_scores[obj_mask]
+        masks_filtered = [m for m, keep in zip(masks, obj_mask_list) if keep] if masks is not None else None
 
     # L2-normalise proposals once for all classes
     feats_norm = F.normalize(feats, p=2, dim=-1)   # (M, D)
@@ -123,6 +128,7 @@ def cosine_similarity_detection(
                 "bounding_box": boxes[i].tolist(),
                 "score":        float(sim_scores[i]),
                 "class":        class_name,
+                "_mask_idx":    i,   # internal index into masks_filtered; removed before returning
             })
 
     if not detections:
@@ -134,7 +140,15 @@ def cosine_similarity_detection(
     scores_t = torch.tensor([d["score"] for d in detections],
                              dtype=torch.float32, device=device)
     keep_idxs = nms(boxes_t, scores_t, iou_threshold=nms_iou_threshold)
-    return [detections[i] for i in keep_idxs.tolist()]
+
+    result = []
+    for i in keep_idxs.tolist():
+        d = dict(detections[i])
+        mask_idx = d.pop("_mask_idx")
+        if masks_filtered is not None and mask_idx < len(masks_filtered) and masks_filtered[mask_idx] is not None:
+            d["segmentation"] = masks_filtered[mask_idx]   # (H,W) bool numpy array; encoded to RLE at save time
+        result.append(d)
+    return result
 
 
 # ──────────────────────────────────────────────────────────────────────────────

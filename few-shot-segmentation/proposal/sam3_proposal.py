@@ -78,15 +78,18 @@ def _infer_batch(
 
     boxes_list  = []
     scores_list = []
+    masks_list  = []
     for result in batch_results:
         if len(result.get("masks", [])) == 0:
             boxes_list.append(torch.zeros((0, 4)))
             scores_list.append(torch.zeros((0,)))
+            masks_list.append([])
         else:
             boxes_list.append(result["boxes"].float().cpu())
             scores_list.append(result["scores"].float().cpu())
+            masks_list.append([m.cpu().numpy().astype(bool) for m in result["masks"]])
 
-    return boxes_list, scores_list
+    return boxes_list, scores_list, masks_list
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -95,12 +98,12 @@ def _infer_batch(
 
 def _global_nms(boxes, scores, feats, iou_threshold=0.5):
     if len(boxes) == 0:
-        return None, None, None
+        return None, None, None, []
     b = torch.from_numpy(boxes).float()
     s = torch.from_numpy(scores).float()
     f = torch.from_numpy(feats).float()
     keep = torchvision_nms(b, s, iou_threshold)
-    return f[keep].numpy(), b[keep].numpy(), s[keep].numpy()
+    return f[keep].numpy(), b[keep].numpy(), s[keep].numpy(), keep.tolist()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -120,13 +123,14 @@ def generate_proposals_tiled(
     model_id=None,              # unused for SAM3; kept for API compat
 ):
     """
-    Generate bounding-box proposals using SAM3.
+    Generate bounding-box proposals with segmentation masks using SAM3.
 
     Returns
     -------
     dict: image_path (str) -> {"features": ndarray(K,D),
                                 "boxes":    ndarray(K,4),
-                                "scores":   ndarray(K,)}
+                                "scores":   ndarray(K,),
+                                "masks":    list[ndarray(H,W) bool]}
           or None for images with no detections.
     """
     image_paths = [str(p) for p in image_paths]
@@ -137,6 +141,12 @@ def generate_proposals_tiled(
         embedder_kwargs["model_id"] = model_id
     embedder = get_embedder(embedding_backend, **embedder_kwargs)
     logger.info(f"Embedding backend: {embedding_backend}")
+
+    # Pre-compute full image sizes for mask reconstruction
+    full_image_sizes = {}
+    for idx, p in enumerate(image_paths):
+        img = Image.open(p)
+        full_image_sizes[idx] = img.size  # (W, H)
 
     # Build dataset / loader
     if is_sahi:
@@ -156,17 +166,17 @@ def generate_proposals_tiled(
         loader = [dataset[i: i + batch_size] for i in range(0, len(dataset), batch_size)]
         logger.info(f"Whole-image mode | images={len(dataset)}, batch_size={batch_size}")
 
-    accum = collections.defaultdict(lambda: {"boxes": [], "scores": [], "feats": []})
+    accum = collections.defaultdict(lambda: {"boxes": [], "scores": [], "feats": [], "masks": []})
 
     for batch_idx, batch in enumerate(loader):
         tile_images = [item["image"]                     for item in batch]
         coords_list = [item["metadata"]["coords"]        for item in batch]
         img_idxs    = [int(item["metadata"]["img_idx"])  for item in batch]
 
-        boxes_list, scores_list = _infer_batch(tile_images, text_prompt, confidence_threshold)
+        boxes_list, scores_list, masks_list = _infer_batch(tile_images, text_prompt, confidence_threshold)
 
-        for tile_img, tile_boxes, tile_scores, coords, img_idx in zip(
-            tile_images, boxes_list, scores_list, coords_list, img_idxs
+        for tile_img, tile_boxes, tile_scores, tile_masks, coords, img_idx in zip(
+            tile_images, boxes_list, scores_list, masks_list, coords_list, img_idxs
         ):
             if tile_boxes.numel() == 0:
                 continue
@@ -181,6 +191,9 @@ def generate_proposals_tiled(
             accum[img_idx]["boxes"].append(global_boxes)
             accum[img_idx]["scores"].append(tile_scores.numpy())
             accum[img_idx]["feats"].append(feats_np)
+            # Store each mask with its tile offset for full-image reconstruction after NMS
+            for mask in tile_masks:
+                accum[img_idx]["masks"].append((mask, int(ox), int(oy)))
 
         logger.debug(f"Batch {batch_idx + 1}/{len(loader)} done")
 
@@ -189,15 +202,29 @@ def generate_proposals_tiled(
         boxes_raw  = np.vstack(a["boxes"])
         scores_raw = np.hstack(a["scores"])
         feats_raw  = np.vstack(a["feats"])
+        masks_raw  = a["masks"]  # list of (mask_arr, ox, oy), aligned with boxes_raw
 
-        feats_f, boxes_f, scores_f = _global_nms(
+        feats_f, boxes_f, scores_f, keep_idxs = _global_nms(
             boxes_raw, scores_raw, feats_raw, nms_iou_threshold
         )
         if boxes_f is not None:
+            # Reconstruct full-image masks for each kept detection
+            full_w, full_h = full_image_sizes[img_idx]
+            final_masks = []
+            for ki in keep_idxs:
+                local_mask, ox, oy = masks_raw[ki]
+                full_mask = np.zeros((full_h, full_w), dtype=bool)
+                mh, mw = local_mask.shape
+                y2 = min(oy + mh, full_h)
+                x2 = min(ox + mw, full_w)
+                full_mask[oy:y2, ox:x2] = local_mask[:y2 - oy, :x2 - ox]
+                final_masks.append(full_mask)
+
             results[image_paths[img_idx]] = {
                 "features": feats_f,
                 "boxes":    boxes_f,
                 "scores":   scores_f,
+                "masks":    final_masks,
             }
             logger.info(f"{Path(image_paths[img_idx]).name}: "
                         f"{len(boxes_raw)} raw → {len(boxes_f)} after NMS")

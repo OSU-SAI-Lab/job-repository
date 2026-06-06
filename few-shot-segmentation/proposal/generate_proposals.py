@@ -27,6 +27,7 @@ from pathlib import Path
 import json
 import time
 import numpy as np
+from pycocotools import mask as mask_util
 
 
 PROPOSERS = ["sam3", "owlv2"]
@@ -163,18 +164,24 @@ if __name__ == "__main__":
                 features = det["features"]
                 boxes    = det["boxes"]
                 scores   = det["scores"]
+                masks    = det.get("masks", [])  # list of (H,W) bool arrays; empty for non-SAM3 proposers
 
                 all_data[f"{name}_features"] = features
                 all_data[f"{name}_boxes"]    = boxes
                 all_data[f"{name}_scores"]   = scores
 
                 for i in range(len(scores)):
-                    all_annotations.append({
+                    ann = {
                         "image_path":    name,
                         "bounding_box":  boxes[i].tolist() if hasattr(boxes[i], "tolist") else list(boxes[i]),
                         "score":         float(scores[i]),
                         "class":         str(float(scores[i])),   # placeholder class name
-                    })
+                    }
+                    if i < len(masks) and masks[i] is not None:
+                        rle = mask_util.encode(np.asfortranarray(masks[i].astype(np.uint8)))
+                        rle["counts"] = rle["counts"].decode("utf-8")
+                        ann["segmentation"] = rle
+                    all_annotations.append(ann)
 
             # Write combined .npz and JSON for this proposer-embedder combination
             features_dir = Path(args.output_dir) / "proposals/tensors"

@@ -49,6 +49,7 @@ PROPOSALS_JSON_FILE_PATHS   = {}   # backend -> path (contains segmentation mask
 OBJECTNESS_THRESHOLD = 0.1
 SIMILARITY_THRESHOLD = 0.2
 NMS_IOU_THRESHOLD    = 0.5
+MAX_PROPOSALS        = 100
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -182,6 +183,7 @@ def process_image(
             objectness_threshold=OBJECTNESS_THRESHOLD,
             similarity_threshold=SIMILARITY_THRESHOLD,
             nms_iou_threshold=NMS_IOU_THRESHOLD,
+            max_proposals=MAX_PROPOSALS,
         )
         for d in dets:
             d["image_path"] = image_name
@@ -286,6 +288,10 @@ if __name__ == "__main__":
     parser.add_argument("--objectness_threshold", type=float, default=0.1)
     parser.add_argument("--similarity_threshold",  type=float, default=0.2)
     parser.add_argument("--nms_iou_threshold",     type=float, default=0.5)
+    parser.add_argument("--max_proposals", type=int, default=100,
+                        help="Max proposals per image kept (by objectness) before "
+                             "classification. Raise for dense scenes like residue "
+                             "where one image has hundreds of true pieces (default: 100).")
     parser.add_argument("--is_query_dir", action="store_true",
                         help="Treat --qry_path as a directory of images")
     parser.add_argument("--device", type=str, default=DEVICE)
@@ -309,6 +315,7 @@ if __name__ == "__main__":
     OBJECTNESS_THRESHOLD = args.objectness_threshold
     SIMILARITY_THRESHOLD = args.similarity_threshold
     NMS_IOU_THRESHOLD    = args.nms_iou_threshold
+    MAX_PROPOSALS        = args.max_proposals
 
     cs = args.class_support_file_paths
     of = args.object_features_file_paths

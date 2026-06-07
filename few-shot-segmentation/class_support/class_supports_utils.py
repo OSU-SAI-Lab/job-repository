@@ -144,6 +144,68 @@ def load_embedding_model(backend: str, device=None, torch_dtype=None, model_name
 # OWLv2: centered-crop + best-anchor selection
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _decode_segmentation(seg, height: int = None, width: int = None) -> Optional[np.ndarray]:
+    """Decode a COCO segmentation (compressed RLE, uncompressed RLE, or polygon)
+    into a (H, W) boolean mask. Returns None if undecodable (e.g. pycocotools
+    missing) so callers can fall back to a plain box crop."""
+    if seg is None:
+        return None
+    try:
+        from pycocotools import mask as mask_util  # type: ignore
+    except Exception:
+        print("  [WARN] pycocotools unavailable — cannot decode GT masks; "
+              "falling back to box crop. Install pycocotools for mask-based supports.")
+        return None
+
+    if isinstance(seg, dict):
+        counts = seg.get("counts")
+        if isinstance(counts, list):                 # uncompressed RLE
+            rle = mask_util.frPyObjects(seg, seg["size"][0], seg["size"][1])
+        elif isinstance(counts, (str, bytes)):       # compressed RLE
+            rle = dict(seg)
+            rle["counts"] = counts.encode("utf-8") if isinstance(counts, str) else counts
+        else:
+            return None
+        mask = mask_util.decode(rle)
+    elif isinstance(seg, list):                      # polygon(s)
+        if height is None or width is None:
+            return None
+        rles = mask_util.frPyObjects(seg, height, width)
+        mask = mask_util.decode(mask_util.merge(rles))
+    else:
+        return None
+
+    if mask.ndim == 3:
+        mask = mask[..., 0]
+    return mask.astype(bool)
+
+
+def _apply_mask_to_crop(img: Image.Image, box, mask, background: str = "zero") -> Image.Image:
+    """Crop `box` from `img` and suppress background pixels outside `mask`.
+
+    Mirrors BaseEmbedder._mask_crop in proposal/embedding_utils.py so that
+    support and proposal embeddings live in the SAME masked space. Falls back to
+    the plain box crop on any shape mismatch or empty mask.
+    """
+    x1, y1, x2, y2 = map(int, box)
+    x1, y1 = max(0, x1), max(0, y1)
+    x2, y2 = min(img.width, x2), min(img.height, y2)
+    if x2 <= x1 or y2 <= y1:
+        return Image.new("RGB", (1, 1))
+
+    crop = img.crop((x1, y1, x2, y2))
+    if background == "none" or mask is None:
+        return crop
+
+    m = np.asarray(mask, dtype=bool)[y1:y2, x1:x2]
+    arr = np.array(crop)
+    if m.shape != arr.shape[:2] or not m.any():
+        return crop
+    fill = arr[m].mean(axis=0).astype(arr.dtype) if background == "mean" else 0
+    arr[~m] = fill
+    return Image.fromarray(arr)
+
+
 def _compute_iou(boxA, boxB) -> float:
     """Compute IoU between two [x1,y1,x2,y2] boxes."""
     xa1, ya1, xa2, ya2 = map(float, boxA)
@@ -321,6 +383,7 @@ def extract_support_embeddings(
     device: str,                # kept for API compat; we always use module-level DEVICE
     src_path: str = None,
     crop_size: int = 1024,      # used only by OWLv2 centered-crop path (legacy)
+    mask_background: str = "zero",  # 'zero'|'mean'|'none' — GT background suppression (dinov3/bioclip)
 ) -> Tuple[Dict[str, torch.Tensor], list]:
     """
     Extract class-support embeddings from GT-annotated crops.
@@ -382,6 +445,16 @@ def extract_support_embeddings(
             continue
 
         crop = img.crop((x1, y1, x2, y2))
+
+        # For mask-based backends, suppress GT background outside the segmentation
+        # mask so supports match the mask-cropped proposals (same embedding space).
+        if embedding_backend in ("bioclip", "dinov3"):
+            seg = support.get("segmentation")
+            mask = _decode_segmentation(seg, H, W) if seg is not None else None
+            if mask is not None:
+                crop = _apply_mask_to_crop(img, (x1, y1, x2, y2), mask, mask_background)
+            elif seg is None:
+                print(f"  [DEBUG] [{idx}] no segmentation field — using plain box crop.")
 
         # Embed with the selected backend
         if embedding_backend == "owlv2":

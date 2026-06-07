@@ -23,6 +23,7 @@ Output:
     - Detailed matching report (optional JSON)
 """
 
+import os
 import json
 import argparse
 from pathlib import Path
@@ -58,9 +59,12 @@ def load_annotations(file_path):
     
     annotations_by_image = defaultdict(list)
     for ann in data.get("annotations", []):
-        img_path = ann["image_path"]
+        # Key by basename so ground-truth and generated detections match even when
+        # one side stores a relative path (e.g. "field_2/images/x.png") and the
+        # other an absolute query path (e.g. "/.../test/field_2/x.png").
+        img_path = os.path.basename(ann["image_path"])
         annotations_by_image[img_path].append(ann)
-    
+
     return annotations_by_image
 
 
@@ -92,8 +96,20 @@ def compute_mask_iou(seg1, seg2):
     """
     try:
         from pycocotools import mask as mask_util
-        rle1 = {**seg1, "counts": seg1["counts"].encode("utf-8") if isinstance(seg1["counts"], str) else seg1["counts"]}
-        rle2 = {**seg2, "counts": seg2["counts"].encode("utf-8") if isinstance(seg2["counts"], str) else seg2["counts"]}
+
+        def _to_compressed_rle(seg):
+            """Normalise a COCO segmentation to a compressed RLE (bytes counts).
+            Handles compressed RLE (str/bytes counts) and uncompressed RLE (list
+            counts) — the latter must go through frPyObjects, or merge/area fail."""
+            counts = seg["counts"]
+            if isinstance(counts, list):           # uncompressed RLE
+                return mask_util.frPyObjects(seg, seg["size"][0], seg["size"][1])
+            rle = dict(seg)
+            rle["counts"] = counts.encode("utf-8") if isinstance(counts, str) else counts
+            return rle
+
+        rle1 = _to_compressed_rle(seg1)
+        rle2 = _to_compressed_rle(seg2)
         intersection = float(mask_util.area(mask_util.merge([rle1, rle2], intersect=True)))
         union        = float(mask_util.area(mask_util.merge([rle1, rle2], intersect=False)))
         return intersection / union if union > 0 else 0.0

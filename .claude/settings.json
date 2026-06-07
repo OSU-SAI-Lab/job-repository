@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(BASE=/fs/ess/PAS2699/kamath/corn_residue/v1 *)",
+      "Read(//fs/ess/PAS2699/kamath/corn_residue/v1/field_1/images/**)",
+      "Bash(# Check if pre-built .sif containers exist somewhere *)",
+      "Read(//fs/ess/PAS2699/**)",
+      "Bash(xargs ls -lt)",
+      "Bash(sinfo --format=\"%P %a %l %D %t\")",
+      "Bash(module avail *)",
+      "Bash(conda env *)",
+      "Bash(apptainer inspect *)",
+      "Bash(python3 -c ' *)"
+    ]
+  }
+}

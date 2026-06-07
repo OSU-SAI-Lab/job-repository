@@ -42,6 +42,7 @@ def cosine_similarity_detection(
     objectness_threshold: float = 0.1,
     similarity_threshold: float = 0.2,
     nms_iou_threshold: float = 0.5,
+    max_proposals: int = 100,
 ) -> list:
     """
     Classify proposals against class supports via cosine similarity.
@@ -74,12 +75,12 @@ def cosine_similarity_detection(
     boxes      = boxes.to(device).float()
     obj_scores = obj_scores.to(device).float()
 
-    # Objectness pre-filter: keep top-100; apply same filter to masks list
+    # Objectness pre-filter: keep top-`max_proposals`; apply same filter to masks list
     obj_mask = obj_scores > objectness_threshold
     if obj_mask.sum() == 0:
         return []
-    if obj_mask.sum() > 100:
-        _, top_idxs = obj_scores.topk(100)
+    if obj_mask.sum() > max_proposals:
+        _, top_idxs = obj_scores.topk(max_proposals)
         top_idx_list = top_idxs.tolist()
         feats      = feats[top_idxs]
         boxes      = boxes[top_idxs]
@@ -166,6 +167,7 @@ def run_detection_for_backend(
     objectness_threshold: float = 0.1,
     similarity_threshold: float = 0.2,
     nms_iou_threshold: float = 0.5,
+    max_proposals: int = 100,
 ) -> list:
     """
     Dispatch to cosine_similarity_detection for all backends.
@@ -184,4 +186,5 @@ def run_detection_for_backend(
         objectness_threshold=objectness_threshold,
         similarity_threshold=similarity_threshold,
         nms_iou_threshold=nms_iou_threshold,
+        max_proposals=max_proposals,
     )

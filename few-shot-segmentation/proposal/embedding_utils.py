@@ -38,6 +38,7 @@ from typing import List, Union
 
 logger = logging.getLogger(__name__)
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 from PIL import Image
@@ -70,6 +71,64 @@ class BaseEmbedder(ABC):
             crops.append(image.crop((x1, y1, x2, y2)) if x2 > x1 and y2 > y1
                          else Image.new("RGB", (1, 1)))
         return self.embed(crops)
+
+    def embed_masks(
+        self,
+        image: Image.Image,
+        boxes: List[List[float]],
+        masks: List,
+        background: str = "zero",
+    ) -> torch.Tensor:
+        """
+        Crop each box's tight region from `image`, zero out (or mean-fill) the
+        pixels *outside* its segmentation mask, and embed.  This is the
+        mask-aware counterpart of embed_boxes() and is what makes the pipeline a
+        few-shot *segmentation* (not box) matcher: the embedding describes the
+        object's pixels, not its bounding rectangle plus background.
+
+        `masks[i]` must be a (H, W) boolean array in the SAME coordinate frame as
+        `image` (i.e. the tile/full image the box was detected in).  If a mask is
+        None or shape-incompatible, that entry falls back to a plain box crop so
+        the call never fails.
+
+        Returns (N, D) CPU float32 L2-normed — identical space to embed()/embed_boxes().
+        """
+        crops = [
+            self._mask_crop(image, box, mask, background)
+            for box, mask in zip(boxes, masks)
+        ]
+        return self.embed(crops)
+
+    @staticmethod
+    def _mask_crop(image: Image.Image, box, mask, background: str = "zero") -> Image.Image:
+        """Crop `box` from `image` and suppress background pixels using `mask`.
+
+        background: 'zero' → black, 'mean' → per-crop mean colour, 'none' → no
+        masking (plain box crop). Falls back to a box crop on any shape mismatch.
+        """
+        x1, y1, x2, y2 = map(int, box)
+        x1, y1 = max(0, x1), max(0, y1)
+        x2, y2 = min(image.width, x2), min(image.height, y2)
+        if x2 <= x1 or y2 <= y1:
+            return Image.new("RGB", (1, 1))
+
+        crop = image.crop((x1, y1, x2, y2))
+        if background == "none" or mask is None:
+            return crop
+
+        m = np.asarray(mask, dtype=bool)
+        m = m[y1:y2, x1:x2]
+        arr = np.array(crop)  # (h, w, 3) uint8
+        if m.shape != arr.shape[:2] or not m.any():
+            # Shape mismatch or empty mask → safest is the unmasked crop.
+            return crop
+
+        if background == "mean":
+            fill = arr[m].mean(axis=0).astype(arr.dtype)
+        else:  # 'zero'
+            fill = 0
+        arr[~m] = fill
+        return Image.fromarray(arr)
 
     @staticmethod
     def _normalise(t: torch.Tensor) -> torch.Tensor:

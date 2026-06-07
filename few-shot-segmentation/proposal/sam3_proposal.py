@@ -121,6 +121,7 @@ def generate_proposals_tiled(
     nms_iou_threshold=0.5,
     embedding_backend="dinov3",
     model_id=None,              # unused for SAM3; kept for API compat
+    mask_background="zero",     # 'zero' | 'mean' | 'none' — background suppression for embedding
 ):
     """
     Generate bounding-box proposals with segmentation masks using SAM3.
@@ -186,7 +187,15 @@ def generate_proposals_tiled(
             global_boxes = (tile_boxes + offset).numpy()
 
             local_boxes = tile_boxes.tolist()
-            feats_np    = embedder.embed_boxes(tile_img, local_boxes).numpy()
+            # Mask-aware embedding: suppress background outside each SAM3 mask so
+            # the embedding describes the object's pixels, not the box rectangle.
+            # tile_masks are tile-local (H_tile, W_tile) bool arrays aligned with boxes.
+            if mask_background != "none" and len(tile_masks) == len(local_boxes):
+                feats_np = embedder.embed_masks(
+                    tile_img, local_boxes, tile_masks, background=mask_background
+                ).numpy()
+            else:
+                feats_np = embedder.embed_boxes(tile_img, local_boxes).numpy()
 
             accum[img_idx]["boxes"].append(global_boxes)
             accum[img_idx]["scores"].append(tile_scores.numpy())

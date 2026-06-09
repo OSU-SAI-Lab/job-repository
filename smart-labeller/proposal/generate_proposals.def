@@ -2,6 +2,7 @@ Bootstrap: docker
 From: python:3.12-bullseye
 
 %files
+    ../image_discovery.py /app/image_discovery.py
     generate_proposals.py /app/proposal/generate_proposals.py
     sam3_proposal.py /app/proposal/sam3_proposal.py
     owlv2_proposal.py /app/proposal/owlv2_proposal.py

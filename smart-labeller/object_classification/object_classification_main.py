@@ -20,6 +20,7 @@ An explicit dtype=float32 cast prevents half-precision surprises.
 from __future__ import annotations
 
 import os
+import sys
 import time
 import argparse
 import json
@@ -29,6 +30,14 @@ import numpy as np
 import torch
 
 from object_classification_utils import run_detection_for_backend
+
+_SL_ROOT = Path(__file__).resolve().parent
+for _candidate in (_SL_ROOT, _SL_ROOT.parent):
+    if (_candidate / "image_discovery.py").is_file():
+        if str(_candidate) not in sys.path:
+            sys.path.insert(0, str(_candidate))
+        break
+from image_discovery import discover_images
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -178,16 +187,17 @@ def main():
 
     # ── Query images ─────────────────────────────────────────────────────────
     if IS_QUERY_DIR:
-        image_files = [
-            p for p in Path(QRY_PATH).iterdir()
-            if p.suffix.lower() in {".png", ".jpg", ".jpeg"}
-        ]
+        discovered = discover_images(Path(QRY_PATH))
+        if not discovered:
+            print(f"No images found under {QRY_PATH}")
+            return
+        query_items = discovered   # list of (Path, relative_key)
     else:
-        image_files = [Path(QRY_PATH)]
+        qf = Path(QRY_PATH)
+        query_items = [(qf.resolve(), qf.name)]
 
-    for qf in image_files:
-        query_file_name = qf.name
-        image_name      = str(qf)
+    for qf, query_file_name in query_items:
+        image_name = query_file_name
         print(f"\n── {query_file_name} ──")
 
         per_backend = process_image(

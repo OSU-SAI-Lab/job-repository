@@ -28,6 +28,15 @@ import json
 import time
 import numpy as np
 
+# Locate shared image_discovery module (works locally and in containers).
+_SL_ROOT = Path(__file__).resolve().parent
+for _candidate in (_SL_ROOT, _SL_ROOT.parent):
+    if (_candidate / "image_discovery.py").is_file():
+        if str(_candidate) not in sys.path:
+            sys.path.insert(0, str(_candidate))
+        break
+from image_discovery import discover_images, path_key_map
+
 
 PROPOSERS = ["sam3", "owlv2"]
 EMBEDDERS = ["owlv2", "dinov3", "bioclip"]
@@ -105,12 +114,20 @@ if __name__ == "__main__":
 
     os.makedirs(args.output_dir, exist_ok=True)
 
-    image_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".tiff"}
-    image_dir   = Path(args.image_dir)
-    image_files = sorted([f for f in image_dir.iterdir()
-                          if f.suffix.lower() in image_extensions])
+    image_dir = Path(args.image_dir)
+    discovered      = discover_images(image_dir)
+    image_files     = [p for p, _ in discovered]
+    rel_key_by_path = path_key_map(discovered)
 
-    logger.info(f"Found {len(image_files)} images in {image_dir}")
+    logger.info(f"Found {len(image_files)} images under {image_dir} (recursive)")
+    if not image_files:
+        subdirs = sorted(p.name for p in image_dir.iterdir() if p.is_dir())
+        if subdirs:
+            logger.warning(
+                "No images found. Subfolders present: %s",
+                ", ".join(subdirs[:10]),
+            )
+        sys.exit(1)
     logger.info(f"Proposers: {', '.join(args.proposers)}")
     logger.info(f"Embedders: {', '.join(args.embedders)}")
     logger.info(f"SAHI: {args.is_sahi}")
@@ -155,22 +172,25 @@ if __name__ == "__main__":
             all_annotations = []   # list of per-box annotation dicts
 
             for image_path, det in results.items():
-                name = Path(image_path).name
+                rel_key = rel_key_by_path.get(
+                    str(Path(image_path).resolve()),
+                    Path(image_path).name,
+                )
                 if det is None:
-                    logger.debug(f"No detections for {name}")
+                    logger.debug(f"No detections for {rel_key}")
                     continue
 
                 features = det["features"]
                 boxes    = det["boxes"]
                 scores   = det["scores"]
 
-                all_data[f"{name}_features"] = features
-                all_data[f"{name}_boxes"]    = boxes
-                all_data[f"{name}_scores"]   = scores
+                all_data[f"{rel_key}_features"] = features
+                all_data[f"{rel_key}_boxes"]    = boxes
+                all_data[f"{rel_key}_scores"]   = scores
 
                 for i in range(len(scores)):
                     all_annotations.append({
-                        "image_path":    name,
+                        "image_path":    rel_key,
                         "bounding_box":  boxes[i].tolist() if hasattr(boxes[i], "tolist") else list(boxes[i]),
                         "score":         float(scores[i]),
                         "class":         str(float(scores[i])),   # placeholder class name

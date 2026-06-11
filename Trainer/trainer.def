@@ -1,0 +1,75 @@
+Bootstrap: docker
+From: python:3.11-slim
+
+%labels
+    Author      SAI Lab OSU
+    Version     1.0
+    Description "Workflow Orchestrator Training Module — YOLO + HuggingFace"
+
+%post
+    apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        build-essential \
+        git \
+        git-lfs \
+        libgl1 \
+        libglib2.0-0 \
+        libsm6 \
+        libxext6 \
+        libxrender1 \
+        libfreetype6 \
+        libpng16-16 \
+    && git lfs install \
+    && rm -rf /var/lib/apt/lists/*
+
+    python -m pip install --upgrade pip
+
+    # PyTorch CUDA 12.6 stack
+    python -m pip install --no-cache-dir \
+        torch==2.12.0 \
+        torchvision==0.20.0 \
+        torchaudio==2.12.0
+
+    # Ultralytics YOLO
+    python -m pip install --no-cache-dir \
+        ultralytics
+
+    # HuggingFace stack
+    python -m pip install --no-cache-dir \
+        "transformers>=5.0.0" \
+        "huggingface_hub>=0.25.0" \
+        "datasets>=2.0.0" \
+        "accelerate>=0.20.0" \
+        "tokenizers>=0.15" \
+        "safetensors>=0.4" \
+        timm
+
+    # Utilities
+    python -m pip install --no-cache-dir \
+        "pillow>=10.0.0" \
+        "numpy>=1.24.0" \
+        "scipy"
+
+    # Create directories
+    mkdir -p /opt/trainer /opt/hf_cache
+    chmod -R 777 /opt/hf_cache
+
+%files
+    base_trainer.py  /opt/trainer/base_trainer.py
+    yolo_trainer.py  /opt/trainer/yolo_trainer.py
+    hf_trainer.py    /opt/trainer/hf_trainer.py
+    factory.py       /opt/trainer/factory.py
+    train_main.py    /opt/trainer/train_main.py
+
+%environment
+    export PYTHONUNBUFFERED=1
+    export PATH=/usr/local/bin:$PATH
+    export HF_HOME=/opt/hf_cache
+    export PYTHONPATH=/opt/trainer:$PYTHONPATH
+    export OMP_NUM_THREADS=8
+    export MKL_NUM_THREADS=8
+    export HF_HUB_DISABLE_TELEMETRY=1
+
+%runscript
+    exec python /opt/trainer/train_main.py "$@"
+

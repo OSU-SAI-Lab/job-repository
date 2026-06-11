@@ -1,0 +1,35 @@
+name: trainer_env
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+
+dependencies:
+  # Core
+  - python=3.11
+  - pip
+
+  # PyTorch + CUDA
+  - pytorch=2.12.*
+  - torchvision=0.20.*
+  - torchaudio=2.12.*
+  - pytorch-cuda=12.6
+
+  # Utilities
+  - numpy>=1.24
+  - pillow>=10.0
+  - scipy
+
+  - pip:
+    # Ultralytics YOLO
+    - ultralytics
+
+    # HuggingFace stack
+    - transformers>=5.0.0
+    - huggingface_hub>=0.25.0
+    - datasets>=2.0.0
+    - accelerate>=0.20.0
+    - tokenizers>=0.15
+    - safetensors>=0.4
+    - timm

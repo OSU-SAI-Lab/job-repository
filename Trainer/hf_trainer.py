@@ -70,9 +70,11 @@ class HFTrainer(BaseTrainer):
             self.train_data, self.val_data, self.categories = self._load_classification_data()
         elif self.args.task == "detect":
             self.train_data, self.val_data, self.categories = self._load_detection_data()
+        elif self.args.task == "segment":
+            self.train_data, self.val_data, self.categories = self._load_segmentation_data()
         else:
             print(f"ERROR: Unsupported task '{self.args.task}' for HuggingFace trainer.")
-            print(f"       Supported tasks: classify, detect")
+            print(f"       Supported tasks: classify, detect, segment")
             sys.exit(1)
 
         print(f"INFO: Train samples : {len(self.train_data)}")
@@ -132,6 +134,18 @@ class HFTrainer(BaseTrainer):
                 label2id=label2id,
                 ignore_mismatched_sizes=True,
             )
+        elif self.args.task == "segment":
+            from transformers import SegformerForSemanticSegmentation
+            num_classes = len(self.categories)
+            id2label    = {int(k): v for k, v in self.categories.items()}
+            label2id    = {v: int(k) for k, v in self.categories.items()}
+            model = SegformerForSemanticSegmentation.from_pretrained(
+                self.args.model,
+                num_labels=num_classes,
+                id2label=id2label,
+                label2id=label2id,
+                ignore_mismatched_sizes=True,
+            )
 
         # Build TrainingArguments
         use_cuda = self.args.device == "cuda" and torch.cuda.is_available()
@@ -176,9 +190,21 @@ class HFTrainer(BaseTrainer):
             self.hf_trainer = self._build_detr_trainer(
                 model, training_args, self.args.patience
             )
+        elif self.args.task == "segment":
+            from transformers import Trainer
+            from hf_seg_utils import compute_segmentation_metrics
+            self.hf_trainer = Trainer(
+                model=model,
+                args=training_args,
+                train_dataset=self.train_data,
+                eval_dataset=self.val_data,
+                compute_metrics=compute_segmentation_metrics,
+                callbacks=[EarlyStoppingCallback(early_stopping_patience=self.args.patience)],
+            )
 
         # Run training
         self.hf_trainer.train()
+
         # Save best model
         if local_rank == 0:
             best_model_path = output_dir / "best_model"
@@ -315,6 +341,7 @@ class HFTrainer(BaseTrainer):
                 }
                 encoding = self.processor(images=image, annotations=target, return_tensors="pt")
                 return {
+
                     "pixel_values": encoding["pixel_values"].squeeze(0),
                     "pixel_mask"  : encoding["pixel_mask"].squeeze(0),
                     "labels"      : encoding["labels"][0],
@@ -380,6 +407,16 @@ class HFTrainer(BaseTrainer):
                 }
 
         return HFCocoDataset(hf_train, self.processor), HFCocoDataset(hf_val, self.processor), categories
+
+    def _load_segmentation_data(self):
+        """Load segmentation dataset from folder with images/ and masks/."""
+        from transformers import SegformerImageProcessor
+        from hf_seg_utils import load_segmentation_datasets
+
+        processor = SegformerImageProcessor.from_pretrained(self.args.model)
+        self.processor = processor
+
+        return load_segmentation_datasets(self.args.data, processor)
 
     def _compute_classification_metrics(self, eval_pred):
         """Compute accuracy for classification evaluation."""

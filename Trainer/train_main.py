@@ -2,7 +2,7 @@
 train_main.py
 =============
 Single entry point for the Workflow Orchestrator training module.
-Supports YOLO and HuggingFace training backends via factory patterns
+Supports YOLO and HuggingFace training backends via factory pattern.
 
 Usage:
     # YOLO detection
@@ -83,7 +83,9 @@ def parse_args():
     parser.add_argument("--model",       type=str, required=True,
                         help="Model name or path. "
                              "YOLO: yolov8n.pt, yolov9c.pt etc. "
-                             "HuggingFace: google/vit-base-patch16-224 etc.")
+                             "HuggingFace classify: google/vit-base-patch16-224 "
+                             "HuggingFace detect: facebook/detr-resnet-50 "
+                             "HuggingFace segment: nvidia/mit-b0")
     parser.add_argument("--task",        type=str, required=True,
                         choices=["detect", "segment", "classify"],
                         help="Task type")
@@ -91,7 +93,6 @@ def parse_args():
                         help="Dataset path or name. "
                              "YOLO: path to .yaml or folder. "
                              "HuggingFace: local folder or HuggingFace Hub ID.")
-
     # ── Output ────────────────────────────────
     parser.add_argument("--output_path", type=str, default=DEFAULT_OUTPUT,
                         help="Root directory for all outputs")

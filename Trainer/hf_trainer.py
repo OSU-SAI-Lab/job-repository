@@ -135,11 +135,11 @@ class HFTrainer(BaseTrainer):
                 ignore_mismatched_sizes=True,
             )
         elif self.args.task == "segment":
-            from transformers import SegformerForSemanticSegmentation
+            from transformers import AutoModelForSemanticSegmentation
             num_classes = len(self.categories)
             id2label    = {int(k): v for k, v in self.categories.items()}
             label2id    = {v: int(k) for k, v in self.categories.items()}
-            model = SegformerForSemanticSegmentation.from_pretrained(
+            model = AutoModelForSemanticSegmentation.from_pretrained(
                 self.args.model,
                 num_labels=num_classes,
                 id2label=id2label,
@@ -410,10 +410,10 @@ class HFTrainer(BaseTrainer):
 
     def _load_segmentation_data(self):
         """Load segmentation dataset from folder with images/ and masks/."""
-        from transformers import SegformerImageProcessor
+        from transformers import AutoImageProcessor
         from hf_seg_utils import load_segmentation_datasets
 
-        processor = SegformerImageProcessor.from_pretrained(self.args.model)
+        processor = AutoImageProcessor.from_pretrained(self.args.model)
         self.processor = processor
 
         return load_segmentation_datasets(self.args.data, processor)

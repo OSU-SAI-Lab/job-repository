@@ -20,7 +20,6 @@ METHOD = "image"                     # image, text, RPN
 SRC_PATH = None
 OUTPUT_PATH = None
 ANN_FILE_PATH = None
-MASK_BACKGROUND = "zero"             # 'zero'|'mean'|'none' — GT background suppression
 TORCH_DTYPE  = torch.float16 if torch.cuda.is_available() else torch.float32
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 patch_size_to_iou_score_map = {}
@@ -77,8 +76,7 @@ def main(crop_size: int, backends_to_run: list = None) -> tuple:
         model_bundle = load_embedding_model(backend, DEVICE, TORCH_DTYPE, backend_model_name)
 
         class_supports, generated_boxes = extract_support_embeddings(
-            support_examples, backend, model_bundle, DEVICE, src_path=SRC_PATH,
-            crop_size=crop_size, mask_background=MASK_BACKGROUND,
+            support_examples, backend, model_bundle, DEVICE, src_path=SRC_PATH, crop_size=crop_size
         )
 
         if backend == "owlv2":
@@ -124,12 +122,6 @@ if __name__ == "__main__":
                              "bioclip has no override)")
     parser.add_argument("--device",            type=str,   default=DEVICE,
                         help="Device to use (default: auto)")
-    parser.add_argument("--mask_background",   type=str,   default="zero",
-                        choices=["zero", "mean", "none"],
-                        help="Background suppression for GT crops when a segmentation "
-                             "mask is present (dinov3/bioclip): 'zero' blacks out pixels "
-                             "outside the mask, 'mean' fills with the crop mean, 'none' "
-                             "disables masking (plain box crop). Default: zero.")
     args = parser.parse_args()
 
     METHOD           = args.method
@@ -139,7 +131,6 @@ if __name__ == "__main__":
     EMBEDDING_BACKENDS = args.embedding_backend
     MODEL_NAME         = args.model_name
     DEVICE           = args.device
-    MASK_BACKGROUND  = args.mask_background
     # Parse crop_size: can be "1024" or "[1024,760]" or "[1024, 760]"
     crop_size_str = args.crop_size.strip()
     if crop_size_str.startswith('['):

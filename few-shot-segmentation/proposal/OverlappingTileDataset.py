@@ -2,8 +2,7 @@
 import logging
 import torch, os, math
 from torch.utils.data import Dataset
-from PIL import Image, ImageFile
-ImageFile.LOAD_TRUNCATED_IMAGES = True
+from PIL import Image
 
 logger = logging.getLogger(__name__)
 

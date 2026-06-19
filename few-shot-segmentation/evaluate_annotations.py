@@ -1,12 +1,11 @@
 """
-evaluate_annotations.py - Evaluate object detection / segmentation annotations against ground truth.
+evaluate_annotations.py - Evaluate object detection annotations against ground truth.
 
 Calculates precision metrics by:
 1. Loading ground truth annotations
 2. Loading AI-generated annotations
 3. Filtering by similarity threshold
-4. Matching detections using mask IoU (when both sides carry "segmentation" fields)
-   or box IoU as fallback
+4. Matching boxes using IoU (Intersection over Union)
 5. Computing precision = TP / (TP + FP)
 
 Usage:
@@ -23,7 +22,6 @@ Output:
     - Detailed matching report (optional JSON)
 """
 
-import os
 import json
 import argparse
 from pathlib import Path
@@ -59,22 +57,19 @@ def load_annotations(file_path):
     
     annotations_by_image = defaultdict(list)
     for ann in data.get("annotations", []):
-        # Key by basename so ground-truth and generated detections match even when
-        # one side stores a relative path (e.g. "field_2/images/x.png") and the
-        # other an absolute query path (e.g. "/.../test/field_2/x.png").
-        img_path = os.path.basename(ann["image_path"])
+        img_path = ann["image_path"]
         annotations_by_image[img_path].append(ann)
-
+    
     return annotations_by_image
 
 
 def compute_iou(box1, box2):
     """
     Compute IoU (Intersection over Union) between two boxes.
-
+    
     Args:
         box1, box2: [x1, y1, x2, y2]
-
+    
     Returns:
         float: IoU score (0-1)
     """
@@ -84,116 +79,64 @@ def compute_iou(box1, box2):
     return iou.item()
 
 
-def compute_mask_iou(seg1, seg2):
+def match_boxes(gt_boxes, generated_boxes, iou_threshold=0.5, debug=False):
     """
-    Compute IoU between two COCO RLE segmentations.
-
-    Args:
-        seg1, seg2: COCO RLE dicts with "size" and "counts" keys.
-
-    Returns:
-        float: mask IoU (0-1), or 0.0 on error.
-    """
-    try:
-        from pycocotools import mask as mask_util
-
-        def _to_compressed_rle(seg):
-            """Normalise a COCO segmentation to a compressed RLE (bytes counts).
-            Handles compressed RLE (str/bytes counts) and uncompressed RLE (list
-            counts) — the latter must go through frPyObjects, or merge/area fail."""
-            counts = seg["counts"]
-            if isinstance(counts, list):           # uncompressed RLE
-                return mask_util.frPyObjects(seg, seg["size"][0], seg["size"][1])
-            rle = dict(seg)
-            rle["counts"] = counts.encode("utf-8") if isinstance(counts, str) else counts
-            return rle
-
-        rle1 = _to_compressed_rle(seg1)
-        rle2 = _to_compressed_rle(seg2)
-        intersection = float(mask_util.area(mask_util.merge([rle1, rle2], intersect=True)))
-        union        = float(mask_util.area(mask_util.merge([rle1, rle2], intersect=False)))
-        return intersection / union if union > 0 else 0.0
-    except Exception:
-        return 0.0
-
-
-def match_boxes(gt_boxes, generated_boxes, iou_threshold=0.5,
-                gt_masks=None, gen_masks=None, debug=False):
-    """
-    Match generated detections to GT detections using IoU.
-
-    Uses mask IoU when both gt_masks and gen_masks are provided and non-None for a pair;
-    falls back to box IoU otherwise.
-
+    Match generated boxes to GT boxes using IoU.
+    
     Args:
         gt_boxes: list of [x1, y1, x2, y2]
         generated_boxes: list of [x1, y1, x2, y2]
         iou_threshold: minimum IoU to consider a match
-        gt_masks: list of COCO RLE dicts (or None entries) aligned with gt_boxes
-        gen_masks: list of COCO RLE dicts (or None entries) aligned with generated_boxes
         debug: print detailed matching info
-
+    
     Returns:
         dict with:
             - matched_pairs: list of (gt_idx, gen_idx, iou) tuples
             - unmatched_gt: list of GT indices
             - unmatched_gen: list of generated indices
     """
-    use_mask_iou = (
-        gt_masks is not None and gen_masks is not None
-        and len(gt_masks) == len(gt_boxes)
-        and len(gen_masks) == len(generated_boxes)
-    )
-
     if debug:
-        print(f"\n  [Matching] GT: {len(gt_boxes)}, Generated: {len(generated_boxes)}, "
-              f"mask IoU: {use_mask_iou}")
+        print(f"\n  [Matching] GT boxes: {len(gt_boxes)}, Generated boxes: {len(generated_boxes)}")
         if gt_boxes:
             print(f"    GT sample: {gt_boxes[0]}")
         if generated_boxes:
             print(f"    Gen sample: {generated_boxes[0]}")
-
-    matched_pairs    = []
+    
+    matched_pairs = []
     matched_gen_idxs = set()
-    matched_gt_idxs  = set()
-
+    matched_gt_idxs = set()
+    
+    # For each generated box, find best matching GT box
     for gen_idx, gen_box in enumerate(generated_boxes):
-        best_iou    = 0.0
+        best_iou = 0.0
         best_gt_idx = -1
-
+        
         for gt_idx, gt_box in enumerate(gt_boxes):
             if gt_idx in matched_gt_idxs:
                 continue
-
-            if (use_mask_iou
-                    and gt_masks[gt_idx] is not None
-                    and gen_masks[gen_idx] is not None):
-                iou = compute_mask_iou(gt_masks[gt_idx], gen_masks[gen_idx])
-            else:
-                iou = compute_iou(gt_box, gen_box)
-
-            if debug and gen_idx == 0 and gt_idx < 3:
+            
+            iou = compute_iou(gt_box, gen_box)
+            if debug and gen_idx == 0 and gt_idx < 3:  # Show first generated box matching attempts
                 print(f"    gen[{gen_idx}] vs gt[{gt_idx}]: IoU={iou:.4f}")
-
+            
             if iou > best_iou:
-                best_iou    = iou
+                best_iou = iou
                 best_gt_idx = gt_idx
-
+        
         if debug and gen_idx < 3:
-            print(f"  gen[{gen_idx}]: best_iou={best_iou:.4f} "
-                  f"(threshold={iou_threshold}), matched={best_iou >= iou_threshold}")
-
+            print(f"  gen[{gen_idx}]: best_iou={best_iou:.4f} (threshold={iou_threshold}), matched={best_iou >= iou_threshold}")
+        
         if best_iou >= iou_threshold and best_gt_idx >= 0:
             matched_pairs.append((best_gt_idx, gen_idx, best_iou))
             matched_gen_idxs.add(gen_idx)
             matched_gt_idxs.add(best_gt_idx)
-
-    unmatched_gt  = [i for i in range(len(gt_boxes))         if i not in matched_gt_idxs]
-    unmatched_gen = [i for i in range(len(generated_boxes))  if i not in matched_gen_idxs]
-
+    
+    unmatched_gt = [i for i in range(len(gt_boxes)) if i not in matched_gt_idxs]
+    unmatched_gen = [i for i in range(len(generated_boxes)) if i not in matched_gen_idxs]
+    
     return {
         "matched_pairs": matched_pairs,
-        "unmatched_gt":  unmatched_gt,
+        "unmatched_gt": unmatched_gt,
         "unmatched_gen": unmatched_gen,
     }
 
@@ -238,24 +181,17 @@ def evaluate(gt_annotations, generated_annotations, similarity_threshold=0.5, io
         if similarity_threshold > 0:
             gen_anns = [ann for ann in gen_anns if ann.get("score", 1.0) >= similarity_threshold]
         
-        # Extract bounding boxes and optional segmentation masks
-        gt_boxes  = [ann["bounding_box"] for ann in gt_anns]
+        # Extract bounding boxes
+        gt_boxes = [ann["bounding_box"] for ann in gt_anns]
         gen_boxes = [ann["bounding_box"] for ann in gen_anns]
-        gt_masks  = [ann.get("segmentation") for ann in gt_anns]
-        gen_masks = [ann.get("segmentation") for ann in gen_anns]
-
+        
         if debug and (len(gt_boxes) > 0 or len(gen_boxes) > 0):
             print(f"\n[Image] {image_path}")
             print(f"  GT boxes: {gt_boxes}")
             print(f"  Gen boxes: {gen_boxes}")
-
-        # Match using mask IoU when masks are available, box IoU otherwise
-        matching = match_boxes(
-            gt_boxes, gen_boxes,
-            iou_threshold=iou_threshold,
-            gt_masks=gt_masks, gen_masks=gen_masks,
-            debug=debug,
-        )
+        
+        # Match boxes
+        matching = match_boxes(gt_boxes, gen_boxes, iou_threshold=iou_threshold, debug=debug)
         
         # Count TP, FP, FN for this image
         num_tp = len(matching["matched_pairs"])
@@ -297,7 +233,7 @@ def evaluate(gt_annotations, generated_annotations, similarity_threshold=0.5, io
 def print_results(results, verbose=False):
     """Print evaluation results in a human-readable format."""
     print("\n" + "="*70)
-    print("OBJECT DETECTION / SEGMENTATION EVALUATION RESULTS")
+    print("OBJECT DETECTION EVALUATION RESULTS")
     print("="*70)
     
     print(f"\nOverall Metrics:")

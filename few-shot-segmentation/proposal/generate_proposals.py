@@ -27,14 +27,10 @@ from pathlib import Path
 import json
 import time
 import numpy as np
-from pycocotools import mask as mask_util
 
 
-PROPOSERS = ["sam3", "owlv2", "sam_amg"]
+PROPOSERS = ["sam3", "owlv2"]
 EMBEDDERS = ["owlv2", "dinov3", "bioclip"]
-
-# Proposers that emit masks (segmentation) and therefore honour --mask_background.
-MASK_PROPOSERS = {"sam3", "sam_amg"}
 
 
 def get_proposer(name):
@@ -43,9 +39,6 @@ def get_proposer(name):
         return generate_proposals_tiled
     elif name == "owlv2":
         from owlv2_proposal import generate_proposals_tiled
-        return generate_proposals_tiled
-    elif name == "sam_amg":
-        from sam_amg_proposal import generate_proposals_tiled
         return generate_proposals_tiled
     else:
         raise ValueError(f"Unknown proposer '{name}'. Choose from: {PROPOSERS}")
@@ -84,12 +77,6 @@ if __name__ == "__main__":
                              "Note: If proposer is 'sam3', OWLv2 cannot be used as embedder.")
     parser.add_argument("--model_id",      type=str,   default=None,
                         help="HuggingFace model ID override for the chosen backend")
-    parser.add_argument("--mask_background", type=str,  default="zero",
-                        choices=["zero", "mean", "none"],
-                        help="Background suppression when embedding SAM3 mask regions: "
-                             "'zero' blacks out pixels outside the mask, 'mean' fills with "
-                             "the crop mean, 'none' embeds the plain box crop. Default: zero. "
-                             "(Only affects the sam3 proposer, which produces masks.)")
     parser.add_argument("--log_level",     type=str,   default="INFO",
                         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
                         help="Logging verbosity (default: INFO). Use DEBUG to see per-batch progress.")
@@ -103,9 +90,9 @@ if __name__ == "__main__":
     )
     logger = logging.getLogger(__name__)
 
-    # Validation: SAM proposers provide no native OWLv2 embeddings - remove OWLv2 embedder and continue
-    if any(p in MASK_PROPOSERS for p in args.proposers) and "owlv2" in args.embedders:
-        logger.warning("OWLv2 embedder cannot be used with a SAM proposer. Removing OWLv2 from embedders.")
+    # Validation: SAM3 proposer cannot use OWLv2 embedder - remove it and continue
+    if "sam3" in args.proposers and "owlv2" in args.embedders:
+        logger.warning("OWLv2 embedder cannot be used with SAM3 proposer. Removing OWLv2 from embedders.")
         args.embedders = [e for e in args.embedders if e != "owlv2"]
         if not args.embedders:
             logger.error("No valid embedders left after removing OWLv2. Use --embedders dinov3 bioclip.")
@@ -147,11 +134,6 @@ if __name__ == "__main__":
 
         generate_proposals_tiled = get_proposer(proposer)
 
-        # mask_background only applies to proposers that emit masks (SAM3, SAM-AMG)
-        proposer_kwargs = dict(extra_kwargs)
-        if proposer in MASK_PROPOSERS:
-            proposer_kwargs["mask_background"] = args.mask_background
-
         results = generate_proposals_tiled(
             image_paths=image_files,
             text_prompt=args.text_prompt,
@@ -162,7 +144,7 @@ if __name__ == "__main__":
             batch_size=args.batch_size,
             nms_iou_threshold=args.nms_iou,
             embedding_backend=args.embedders[0],  # Start with first embedder for initial proposals
-            **proposer_kwargs,
+            **extra_kwargs,
         )
 
         # For each embedder, generate embeddings
@@ -181,24 +163,18 @@ if __name__ == "__main__":
                 features = det["features"]
                 boxes    = det["boxes"]
                 scores   = det["scores"]
-                masks    = det.get("masks", [])  # list of (H,W) bool arrays; empty for non-SAM3 proposers
 
                 all_data[f"{name}_features"] = features
                 all_data[f"{name}_boxes"]    = boxes
                 all_data[f"{name}_scores"]   = scores
 
                 for i in range(len(scores)):
-                    ann = {
+                    all_annotations.append({
                         "image_path":    name,
                         "bounding_box":  boxes[i].tolist() if hasattr(boxes[i], "tolist") else list(boxes[i]),
                         "score":         float(scores[i]),
                         "class":         str(float(scores[i])),   # placeholder class name
-                    }
-                    if i < len(masks) and masks[i] is not None:
-                        rle = mask_util.encode(np.asfortranarray(masks[i].astype(np.uint8)))
-                        rle["counts"] = rle["counts"].decode("utf-8")
-                        ann["segmentation"] = rle
-                    all_annotations.append(ann)
+                    })
 
             # Write combined .npz and JSON for this proposer-embedder combination
             features_dir = Path(args.output_dir) / "proposals/tensors"

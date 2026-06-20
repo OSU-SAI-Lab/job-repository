@@ -10,7 +10,8 @@
       "Bash(module avail *)",
       "Bash(conda env *)",
       "Bash(apptainer inspect *)",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Bash(python -)"
     ]
   }
 }

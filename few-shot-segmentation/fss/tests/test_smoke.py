@@ -226,6 +226,24 @@ def test_router_routes_mixed_image():
             assert (bx2 - bx1) <= 16 and (by2 - by1) <= 16  # tiny, not the component
 
 
+# ── Alignment check (reverse-IoU) ────────────────────────────────────────────
+
+def test_binary_iou_matches_expected():
+    # binary_iou backs the reverse alignment score; verify fg IoU semantics.
+    from fss.eval import binary_iou
+
+    a = np.zeros((10, 10), dtype=bool); a[2:6, 2:6] = True      # 16 px
+    b = np.zeros((10, 10), dtype=bool); b[4:8, 2:6] = True      # 16 px, half-overlap
+    fg, bg = binary_iou(a, b)
+    # intersection 8, union 24 → 1/3.
+    assert abs(fg - (8 / 24)) < 1e-6
+    assert 0.0 <= bg <= 1.0
+    # Identical masks → fg IoU 1.0; disjoint → 0.0.
+    assert binary_iou(a, a)[0] == 1.0
+    c = np.zeros((10, 10), dtype=bool); c[0, 0] = True
+    assert binary_iou(a, c)[0] == 0.0
+
+
 # ── Full end-to-end: needs model weights (skippable) ─────────────────────────
 
 @pytest.mark.slow

@@ -165,6 +165,9 @@ def main(argv=None) -> int:
     # Downstream options (all OFF by default -> identical to last-good runs).
     ap.add_argument("--eval-variants", action="store_true",
                     help="Also save prior_only / sam3 / granule_sam3 masks + metrics.")
+    ap.add_argument("--alignment-check", action="store_true",
+                    help="Reverse prototype-alignment reverse-IoU per query/path "
+                         "(label-free confidence signal; reported, never alters mask).")
     # Per-granule prompting (the regression fix).
     ap.add_argument("--per-granule-prompts", action="store_true",
                     help="One prompt per detected granule seed; union per-granule masks.")
@@ -231,6 +234,7 @@ def main(argv=None) -> int:
     cfg.dtype = args.dtype
     # Downstream config.
     cfg.eval_variants = args.eval_variants
+    cfg.alignment_check = args.alignment_check
     cfg.prompts.per_granule_prompts = args.per_granule_prompts
     cfg.prompts.seed_source = args.seed_source
     cfg.prompts.granule_min_distance = args.granule_min_distance
@@ -275,6 +279,8 @@ def main(argv=None) -> int:
         entry["n_instances"] = len(res["masks"])
         entry["best_score"] = res["score"]
         entry["active_flags"] = res.get("active_flags")
+        if "alignment" in res:
+            entry["reverse_iou"] = res["alignment"]["reverse_iou"]
         if gt is not None:
             entry["metrics"] = prf(res["mask"], gt)         # precision/recall/IoU/bgFP
             entry["iou"] = entry["metrics"]["iou"]
@@ -351,6 +357,8 @@ def main(argv=None) -> int:
                 "best_score": res["score"],
                 "route_summary": res.get("route_summary"),
             }
+            if "alignment" in res:
+                pr["reverse_iou"] = res["alignment"]["reverse_iou"]
             if gt is not None:
                 pr.update(prf(res["mask"], gt))
             entry["paths"][disp] = pr
@@ -358,13 +366,14 @@ def main(argv=None) -> int:
                 os.path.join(args.out_dir, f"{name}_{disp}_overlay.png"))
             save_debug_overlay(img, res["prior"], res["prompts"], res,
                                os.path.join(args.out_dir, f"{name}_{disp}_debug.png"))
+            rev = f" rIoU{pr['reverse_iou']:.2f}" if "reverse_iou" in pr else ""
             if gt is not None:
                 line += (f"  {disp}[IoU{pr['iou']:.2f} P{pr['precision']:.2f} "
-                         f"R{pr['recall']:.2f} bgFP{pr['bg_fp_rate']:.2f}]")
+                         f"R{pr['recall']:.2f} bgFP{pr['bg_fp_rate']:.2f}{rev}]")
             else:
                 rs = pr["route_summary"]
                 rs_s = f" routes={rs}" if rs else ""
-                line += f"  {disp}[fg{pr['fg_fraction']:.3f} n{pr['n_instances']}{rs_s}]"
+                line += f"  {disp}[fg{pr['fg_fraction']:.3f} n{pr['n_instances']}{rev}{rs_s}]"
         results["queries"].append(entry)
         print(line)
 
@@ -448,6 +457,36 @@ def _print_acceptance(results: dict, query_ids: list) -> None:
                 cells.append(f"{q['name']}:{r_iou:.2f}vs{best_pure:.2f}({delta:+.2f})")
             verdict = "ACCEPT" if ok else "needs-tuning"
             print(f"  {rp:<16} {verdict}  " + "  ".join(cells))
+
+    # Alignment selector: can reverse-IoU pick the best path per image? Compare a
+    # reverse-IoU-argmax selector against the per_granule baseline and the oracle
+    # (always-pick-best). This is the empirical test of whether the alignment
+    # signal *improves accuracy* or is merely telemetry.
+    has_rev = all("reverse_iou" in p for q in gt_queries for p in q["paths"].values())
+    if has_rev:
+        print("\n── alignment selector (reverse-IoU vs forward-IoU) ──")
+        sel_ious, oracle_ious, pg_ious = [], [], []
+        per_pair = []                      # (reverse_iou, forward_iou) for correlation
+        for q in gt_queries:
+            ranked = q["paths"]
+            pick = max(ranked, key=lambda p: ranked[p]["reverse_iou"])
+            sel_ious.append(ranked[pick]["iou"])
+            oracle_ious.append(max(ranked[p]["iou"] for p in ranked))
+            if "per_granule" in ranked:
+                pg_ious.append(ranked["per_granule"]["iou"])
+            for p in ranked.values():
+                per_pair.append((p["reverse_iou"], p["iou"]))
+            print(f"  {q['name']:<12} picks {pick:<16} "
+                  f"fwdIoU={ranked[pick]['iou']:.2f}  "
+                  f"(oracle {max(ranked[p]['iou'] for p in ranked):.2f})")
+        arr = np.array(per_pair)
+        corr = (float(np.corrcoef(arr[:, 0], arr[:, 1])[0, 1])
+                if len(arr) > 1 and arr[:, 0].std() > 0 else float("nan"))
+        print(f"\n  selector mIoU={np.mean(sel_ious):.4f}  "
+              f"per_granule mIoU={np.mean(pg_ious):.4f}  "
+              f"oracle mIoU={np.mean(oracle_ious):.4f}")
+        print(f"  corr(reverse-IoU, forward-IoU) over all path-runs = {corr:+.3f}  "
+              f"(near 0 ⇒ signal is telemetry, not a useful selector)")
 
 
 if __name__ == "__main__":

@@ -73,8 +73,9 @@ class MatcherConfig:
 class PromptConfig:
     """prior-map → SAM-prompt derivation settings."""
 
-    threshold: float = 0.5
-    """Foreground threshold on the (normalised) prior map in [0, 1]."""
+    threshold: float = 0.4
+    """Foreground threshold on the (normalised) prior map in [0, 1]. Sweep-
+    calibrated for the per-granule path (mIoU 0.64 over the 7 fertilizer queries)."""
 
     num_pos_points: int = 3
     """Max positive point prompts per instance (similarity peaks)."""
@@ -82,7 +83,7 @@ class PromptConfig:
     num_neg_points: int = 2
     """Negative points sampled from clearly-low-similarity regions (0 disables)."""
 
-    neg_threshold: float = 0.15
+    neg_threshold: float = 0.4
     """Prior below this is considered clear background for negative sampling."""
 
     peak_min_distance: int = 8
@@ -146,18 +147,22 @@ class PromptConfig:
     ONE prompt per seed (single positive point + optional tiny box), unioning the
     per-granule SAM masks. Supersedes the whole-blob prompt for scattered targets."""
 
-    seed_source: str = "both"
+    seed_source: str = "brightness"
     """Where granule seeds come from: 'brightness' (granules are lighter than
-    soil), 'prior', or 'both' (brightness * prior, restricted to prior fg)."""
+    soil), 'prior', or 'both' (brightness * prior, restricted to prior fg).
+    Sweep-calibrated: 'brightness' is the single biggest lever (mixing the prior
+    diluted seeds); flipping it back to 'both' drops mIoU 0.64 → 0.49."""
 
-    granule_min_distance: int = 6
+    granule_min_distance: int = 5
     """Minimum pixel spacing between detected granule seeds (NMS radius). Tune to
-    roughly the granule radius so adjacent granules get separate seeds."""
+    roughly the granule radius so adjacent granules get separate seeds. Sweep-
+    calibrated to 5 (marginal over 6)."""
 
-    granule_seed_z: float = 1.0
+    granule_seed_z: float = 1.5
     """A seed is kept only if its score exceeds mean + granule_seed_z·std of the
     in-prior score, rejecting flat soil plateaus between granules. Lower = more
-    seeds (higher recall, more soil risk); higher = fewer, brighter seeds."""
+    seeds (higher recall, more soil risk); higher = fewer, brighter seeds.
+    Sweep-calibrated to 1.5 (fewer, cleaner seeds)."""
 
     max_seeds_per_region: int = 256
     """Safety cap on seeds per prior region (avoids thousands of SAM calls)."""
@@ -166,13 +171,15 @@ class PromptConfig:
     """Emit a small tight box (sized from the granule size prior) around each seed
     in addition to the positive point. Constrains SAM to a single granule."""
 
-    granule_box_scale: float = 1.5
-    """Box half-side = granule_box_scale * sqrt(expected_granule_area)/2. Slightly
-    larger than the expected granule so SAM has room to find the true boundary."""
+    granule_box_scale: float = 1.0
+    """Box half-side = granule_box_scale * sqrt(expected_granule_area)/2. Sweep-
+    calibrated to 1.0 (a tight box hugging the granule includes less inter-granule
+    soil than the looser 1.5)."""
 
-    granule_neg_points: int = 4
+    granule_neg_points: int = 2
     """Negative points sampled from the darker inter-granule gaps near each seed
-    (tells SAM the soil between granules is background)."""
+    (tells SAM the soil between granules is background). Sweep-calibrated to 2
+    (marginal over 4)."""
 
     # ── Per-region dense-vs-scattered router (primary deliverable) ──────────
     # A single image can hold BOTH a dense/clumped pile (boxes win) and scattered
@@ -223,10 +230,10 @@ class SegmenterConfig:
     multimask_output: bool = True
     """Ask SAM 3 for 3 candidate masks and keep the highest-IoU one."""
 
-    concept_threshold: float = 0.5
+    concept_threshold: float = 0.7
     """Score threshold for the native concept (text/exemplar) path."""
 
-    mask_threshold: float = 0.5
+    mask_threshold: float = 0.7
     """Mask logit threshold for the concept path post-processing."""
 
     # ── Prior-aware candidate selection + prior gating (tasks 2 & 3) ────────
@@ -311,6 +318,13 @@ class FSSConfig:
     eval_variants: bool = False
     """When True, segment() also returns 'variant_masks' with the prior_only /
     current-SAM3 / prior-gated-SAM3 masks for side-by-side IoU comparison."""
+
+    alignment_check: bool = False
+    """Inference-time prototype-alignment (PANet-PAR-style) CONSISTENCY check — NOT
+    a training loss (all models stay frozen). After predicting the query mask,
+    build a prototype FROM the predicted query mask and re-segment each support
+    image, scoring reverse-IoU against the (known) support mask. Returns a
+    label-free confidence signal in result['alignment']; never alters the mask."""
 
     device: Optional[str] = None
     """'cuda' / 'cpu' / None (auto-detect)."""

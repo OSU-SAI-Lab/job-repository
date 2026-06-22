@@ -11,7 +11,10 @@
       "Bash(conda env *)",
       "Bash(apptainer inspect *)",
       "Bash(python3 -c ' *)",
-      "Bash(python -)"
+      "Bash(python -)",
+      "Bash(python -m pytest fss/tests/test_smoke.py -k \"not slow\" -q)",
+      "Bash(sed -i 's#fss_results/sweep$#fss_results/sweep_r2#' scripts/sweep_fertilizer.slurm)",
+      "Bash(sbatch --parsable scripts/sweep_fertilizer.slurm)"
     ]
   }
 }

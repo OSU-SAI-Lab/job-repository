@@ -1,0 +1,20 @@
+[job] node=c0813.ten.osc.edu
+NVIDIA H100
+Loading weights:   0%|          | 0/211 [00:00<?, ?it/s]Loading weights: 100%|██████████| 211/211 [00:00<00:00, 6942.41it/s]
+[transformers] You are using a model of type `sam3_video` to instantiate a model of type `sam3_tracker`. This may be expected if you are loading a checkpoint that shares a subset of the architecture (e.g., loading a `sam2_video` checkpoint into `Sam2Model`), but is otherwise not supported and can yield errors. Please verify that the checkpoint is compatible with the model you are instantiating.
+Loading weights:   0%|          | 0/685 [00:00<?, ?it/s]Loading weights:  17%|█▋        | 115/685 [00:00<00:00, 1143.60it/s]Loading weights:  34%|███▎      | 230/685 [00:00<00:00, 1111.44it/s]Loading weights:  56%|█████▌    | 381/685 [00:00<00:00, 1274.16it/s]Loading weights: 100%|██████████| 685/685 [00:00<00:00, 1737.82it/s]
+[unseen] device=cuda amp=torch.bfloat16
+[unseen] CONFIG FROM config.py → threshold=0.4 seed_z=1.5 seed_source=brightness min_distance=5 box_scale=1.0 neg_points=2 neg_threshold=0.4
+[support] id=0 April1/20250401_131221273_iOS.jpg anns=62
+[query] unseen_March13_20250312_152658742_iOS: instances=28 fg_fraction=0.0067 best_score=0.891
+[query] unseen_March13_20250312_152708424_iOS: instances=9 fg_fraction=0.0029 best_score=0.871
+[query] unseen_March13_20250312_152719170_iOS: instances=12 fg_fraction=0.0031 best_score=0.828
+[query] unseen_March13_20250312_152732493_iOS: instances=10 fg_fraction=0.0026 best_score=0.879
+[query] unseen_March13_20250312_152809057_iOS: instances=26 fg_fraction=0.0028 best_score=0.906
+[query] unseen_March14_20250314_132552161_iOS: instances=91 fg_fraction=0.0130 best_score=0.926
+[query] unseen_March14_20250314_132556858_iOS: instances=13 fg_fraction=0.0029 best_score=0.895
+[query] unseen_March14_20250314_132559646_iOS: instances=24 fg_fraction=0.0048 best_score=0.898
+[query] unseen_March14_20250314_132602889_iOS: instances=26 fg_fraction=0.0046 best_score=0.898
+[query] unseen_March14_20250314_132612844_iOS: instances=29 fg_fraction=0.0059 best_score=0.910
+[unseen] wrote 10 unseen results (overlay+debug+mask) to /users/PAS2699/naveenkamath/job-repository/few-shot-segmentation/fss/results
+[job] DONE

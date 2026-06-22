@@ -122,6 +122,8 @@ class FewShotSegmenter:
 
         self._protos: Optional[SupportPrototypes] = None
         self._expected_area: Optional[float] = None  # granule size prior (px)
+        self._support_images: Optional[List[Image.Image]] = None  # for alignment check
+        self._support_masks: Optional[List[np.ndarray]] = None     # for alignment check
 
     # ──────────────────────────────────────────────────────────────────────
 
@@ -137,6 +139,9 @@ class FewShotSegmenter:
         np_masks = [_load_mask(m) for m in masks]
         self._protos = self.matcher.build_prototypes(pil_images, np_masks)
         self._expected_area = _granule_size_prior(np_masks)
+        # Keep the raw support (image, mask) pairs for the reverse alignment pass.
+        self._support_images = pil_images
+        self._support_masks = np_masks
         return self
 
     def segment(self, query_image: ImageLike) -> dict:
@@ -167,8 +172,38 @@ class FewShotSegmenter:
         if eval_variants:
             result["variant_masks"] = self._variant_masks(query, prior, instances)
         result["route_summary"] = self._route_summary(prompt_sets)
+        if self.config.alignment_check:
+            result["alignment"] = self._alignment_score(query, result["mask"])
         result["active_flags"] = self._active_flags()
         return result
+
+    def _alignment_score(self, query: Image.Image, pred_mask: np.ndarray) -> dict:
+        """Reverse prototype-alignment consistency (PANet-PAR idea, inference-only).
+
+        Build a prototype from the PREDICTED query mask, re-segment every cached
+        support image, and score reverse-IoU against the known support mask. A
+        high reverse-IoU means the prediction captured a prototype that round-trips
+        back to the support — a label-free confidence signal. Returns mean / per-
+        support reverse-IoU; never modifies the forward mask.
+        """
+        from .eval import binary_iou
+
+        thr = self.config.prompts.threshold
+        out: dict = {"reverse_iou": 0.0, "per_support": []}
+        if (self._support_images is None or not self._support_images
+                or int(pred_mask.sum()) == 0):
+            return out                                  # empty prediction → no signal
+
+        rev_protos = self.matcher.build_prototypes([query], [pred_mask.astype(bool)])
+        ious: List[float] = []
+        for sup_img, sup_mask in zip(self._support_images, self._support_masks):
+            rev_prior = self.matcher.compute_prior(sup_img, rev_protos)
+            rev_pred = rev_prior >= thr
+            fg_iou, _ = binary_iou(rev_pred, sup_mask)
+            ious.append(float(fg_iou))
+        out["per_support"] = ious
+        out["reverse_iou"] = float(np.mean(ious)) if ious else 0.0
+        return out
 
     @staticmethod
     def _route_summary(prompt_sets: List[PromptSet]) -> Optional[dict]:
@@ -205,6 +240,7 @@ class FewShotSegmenter:
             "prior_gating": s.prior_gating,
             "size_gate": s.size_gate,
             "intersect_prior_safety": s.intersect_prior_safety,
+            "alignment_check": self.config.alignment_check,
             "expected_granule_area": self._expected_area,
             "output_is_prior_only": False,
         }

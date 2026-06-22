@@ -1,0 +1,32 @@
+[job] node=c0819.ten.osc.edu
+NVIDIA H100
+Loading weights:   0%|          | 0/211 [00:00<?, ?it/s]Loading weights: 100%|██████████| 211/211 [00:00<00:00, 7359.71it/s]
+[transformers] You are using a model of type `sam3_video` to instantiate a model of type `sam3_tracker`. This may be expected if you are loading a checkpoint that shares a subset of the architecture (e.g., loading a `sam2_video` checkpoint into `Sam2Model`), but is otherwise not supported and can yield errors. Please verify that the checkpoint is compatible with the model you are instantiating.
+Loading weights:   0%|          | 0/685 [00:00<?, ?it/s]Loading weights: 100%|██████████| 685/685 [00:00<00:00, 10797.35it/s]
+[test] device=cuda amp_dtype=torch.bfloat16 mode=crop crop=1024 dinov3=base
+[support] id=0 April1/20250401_131221273_iOS.jpg fg=0.0398 anns=62 crop=[614, 257, 1638, 1281]
+[compare] coco_q15:  boxes[IoU0.46 P0.66 R0.60 bgFP0.34]  per_granule[IoU0.34 P0.56 R0.46 bgFP0.44]  router[IoU0.45 P0.63 R0.61 bgFP0.37]
+[compare] coco_q30:  boxes[IoU0.27 P0.37 R0.51 bgFP0.63]  per_granule[IoU0.51 P0.73 R0.63 bgFP0.27]  router[IoU0.36 P0.46 R0.61 bgFP0.54]
+[compare] coco_q45:  boxes[IoU0.41 P0.58 R0.59 bgFP0.42]  per_granule[IoU0.52 P0.85 R0.57 bgFP0.15]  router[IoU0.38 P0.66 R0.46 bgFP0.34]
+[compare] coco_q60:  boxes[IoU0.81 P0.97 R0.84 bgFP0.03]  per_granule[IoU0.70 P0.96 R0.72 bgFP0.04]  router[IoU0.81 P0.96 R0.84 bgFP0.04]
+[compare] coco_q75:  boxes[IoU0.44 P0.56 R0.66 bgFP0.44]  per_granule[IoU0.54 P0.77 R0.65 bgFP0.23]  router[IoU0.45 P0.64 R0.61 bgFP0.36]
+[compare] coco_q90:  boxes[IoU0.25 P0.48 R0.35 bgFP0.52]  per_granule[IoU0.51 P0.79 R0.60 bgFP0.21]  router[IoU0.44 P0.58 R0.63 bgFP0.42]
+[compare] coco_q105:  boxes[IoU0.50 P0.59 R0.75 bgFP0.41]  per_granule[IoU0.47 P0.70 R0.59 bgFP0.30]  router[IoU0.43 P0.64 R0.57 bgFP0.36]
+[compare] unseen_20250312_152606642_iOS:  boxes[fg0.014 n1]  per_granule[fg0.011 n30]  router[fg0.011 n30 routes={'n_components': 1, 'dense': 0, 'scattered': 1}]
+[compare] unseen_20250312_152616028_iOS:  boxes[fg0.030 n1]  per_granule[fg0.018 n41]  router[fg0.018 n41 routes={'n_components': 1, 'dense': 0, 'scattered': 1}]
+
+── acceptance table (IoU / P / R / bgFP per path) ──
+query                            boxes               per_granule                    router
+------------------------------------------------------------------------------------------
+coco_q15           0.46/0.66/0.60/0.34       0.34/0.56/0.46/0.44       0.45/0.63/0.61/0.37
+coco_q30           0.27/0.37/0.51/0.63       0.51/0.73/0.63/0.27       0.36/0.46/0.61/0.54
+coco_q45           0.41/0.58/0.59/0.42       0.52/0.85/0.57/0.15       0.38/0.66/0.46/0.34
+coco_q60           0.81/0.97/0.84/0.03       0.70/0.96/0.72/0.04       0.81/0.96/0.84/0.04
+coco_q75           0.44/0.56/0.66/0.44       0.54/0.77/0.65/0.23       0.45/0.64/0.61/0.36
+coco_q90           0.25/0.48/0.35/0.52       0.51/0.79/0.60/0.21       0.44/0.58/0.63/0.42
+coco_q105          0.50/0.59/0.75/0.41       0.47/0.70/0.59/0.30       0.43/0.64/0.57/0.36
+
+── router verdict (IoU vs best pure path, per query) ──
+  router           needs-tuning  coco_q15:0.45vs0.46(-0.01)  coco_q30:0.36vs0.51(-0.15)  coco_q45:0.38vs0.52(-0.14)  coco_q60:0.81vs0.81(+0.00)  coco_q75:0.45vs0.54(-0.09)  coco_q90:0.44vs0.51(-0.08)  coco_q105:0.43vs0.50(-0.06)
+[test] artefacts written to /fs/ess/PAS2699/kamath/fertilizer_data/fss_results/thr06_eval
+[job] DONE

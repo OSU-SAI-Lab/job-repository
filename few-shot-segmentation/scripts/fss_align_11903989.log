@@ -1,0 +1,44 @@
+[job] node=c0819.ten.osc.edu
+NVIDIA H100
+Loading weights:   0%|          | 0/211 [00:00<?, ?it/s]Loading weights: 100%|██████████| 211/211 [00:00<00:00, 6979.98it/s]
+[transformers] You are using a model of type `sam3_video` to instantiate a model of type `sam3_tracker`. This may be expected if you are loading a checkpoint that shares a subset of the architecture (e.g., loading a `sam2_video` checkpoint into `Sam2Model`), but is otherwise not supported and can yield errors. Please verify that the checkpoint is compatible with the model you are instantiating.
+Loading weights:   0%|          | 0/685 [00:00<?, ?it/s]Loading weights:  16%|█▋        | 113/685 [00:00<00:00, 1054.51it/s]Loading weights:  35%|███▍      | 238/685 [00:00<00:00, 1054.52it/s]Loading weights:  52%|█████▏    | 356/685 [00:00<00:00, 1098.70it/s]Loading weights: 100%|██████████| 685/685 [00:00<00:00, 1769.43it/s]
+[test] device=cuda amp_dtype=torch.bfloat16 mode=crop crop=1024 dinov3=base
+[support] id=0 April1/20250401_131221273_iOS.jpg fg=0.0398 anns=62 crop=[614, 257, 1638, 1281]
+[compare] coco_q15:  boxes[IoU0.20 P0.26 R0.46 bgFP0.74 rIoU0.26]  per_granule[IoU0.40 P0.53 R0.63 bgFP0.47 rIoU0.26]  router[IoU0.44 P0.55 R0.69 bgFP0.45 rIoU0.26]
+[compare] coco_q30:  boxes[IoU0.14 P0.16 R0.52 bgFP0.84 rIoU0.26]  per_granule[IoU0.46 P0.51 R0.83 bgFP0.49 rIoU0.26]  router[IoU0.36 P0.40 R0.80 bgFP0.60 rIoU0.26]
+[compare] coco_q45:  boxes[IoU0.31 P0.40 R0.58 bgFP0.60 rIoU0.26]  per_granule[IoU0.58 P0.81 R0.67 bgFP0.19 rIoU0.27]  router[IoU0.48 P0.64 R0.65 bgFP0.36 rIoU0.26]
+[compare] coco_q60:  boxes[IoU0.82 P0.96 R0.84 bgFP0.04 rIoU0.28]  per_granule[IoU0.73 P0.96 R0.75 bgFP0.04 rIoU0.28]  router[IoU0.82 P0.96 R0.85 bgFP0.04 rIoU0.28]
+[compare] coco_q75:  boxes[IoU0.40 P0.47 R0.73 bgFP0.53 rIoU0.26]  per_granule[IoU0.53 P0.67 R0.72 bgFP0.33 rIoU0.27]  router[IoU0.42 P0.50 R0.72 bgFP0.50 rIoU0.26]
+[compare] coco_q90:  boxes[IoU0.25 P0.49 R0.34 bgFP0.51 rIoU0.26]  per_granule[IoU0.54 P0.68 R0.73 bgFP0.32 rIoU0.27]  router[IoU0.47 P0.54 R0.77 bgFP0.46 rIoU0.27]
+[compare] coco_q105:  boxes[IoU0.37 P0.41 R0.79 bgFP0.59 rIoU0.26]  per_granule[IoU0.44 P0.58 R0.64 bgFP0.42 rIoU0.27]  router[IoU0.45 P0.56 R0.69 bgFP0.44 rIoU0.26]
+[compare] unseen_20250312_152606642_iOS:  boxes[fg0.014 n1 rIoU0.27]  per_granule[fg0.011 n30 rIoU0.27]  router[fg0.011 n30 rIoU0.27 routes={'n_components': 1, 'dense': 0, 'scattered': 1}]
+[compare] unseen_20250312_152616028_iOS:  boxes[fg0.034 n1 rIoU0.26]  per_granule[fg0.019 n42 rIoU0.26]  router[fg0.019 n42 rIoU0.26 routes={'n_components': 1, 'dense': 0, 'scattered': 1}]
+
+── acceptance table (IoU / P / R / bgFP per path) ──
+query                            boxes               per_granule                    router
+------------------------------------------------------------------------------------------
+coco_q15           0.20/0.26/0.46/0.74       0.40/0.53/0.63/0.47       0.44/0.55/0.69/0.45
+coco_q30           0.14/0.16/0.52/0.84       0.46/0.51/0.83/0.49       0.36/0.40/0.80/0.60
+coco_q45           0.31/0.40/0.58/0.60       0.58/0.81/0.67/0.19       0.48/0.64/0.65/0.36
+coco_q60           0.82/0.96/0.84/0.04       0.73/0.96/0.75/0.04       0.82/0.96/0.85/0.04
+coco_q75           0.40/0.47/0.73/0.53       0.53/0.67/0.72/0.33       0.42/0.50/0.72/0.50
+coco_q90           0.25/0.49/0.34/0.51       0.54/0.68/0.73/0.32       0.47/0.54/0.77/0.46
+coco_q105          0.37/0.41/0.79/0.59       0.44/0.58/0.64/0.42       0.45/0.56/0.69/0.44
+
+── router verdict (IoU vs best pure path, per query) ──
+  router           needs-tuning  coco_q15:0.44vs0.40(+0.04)  coco_q30:0.36vs0.46(-0.10)  coco_q45:0.48vs0.58(-0.11)  coco_q60:0.82vs0.82(+0.00)  coco_q75:0.42vs0.53(-0.12)  coco_q90:0.47vs0.54(-0.08)  coco_q105:0.45vs0.44(+0.01)
+
+── alignment selector (reverse-IoU vs forward-IoU) ──
+  coco_q15     picks per_granule      fwdIoU=0.40  (oracle 0.44)
+  coco_q30     picks router           fwdIoU=0.36  (oracle 0.46)
+  coco_q45     picks per_granule      fwdIoU=0.58  (oracle 0.58)
+  coco_q60     picks per_granule      fwdIoU=0.73  (oracle 0.82)
+  coco_q75     picks per_granule      fwdIoU=0.53  (oracle 0.53)
+  coco_q90     picks per_granule      fwdIoU=0.54  (oracle 0.54)
+  coco_q105    picks per_granule      fwdIoU=0.44  (oracle 0.45)
+
+  selector mIoU=0.5123  per_granule mIoU=0.5264  oracle mIoU=0.5477
+  corr(reverse-IoU, forward-IoU) over all path-runs = +0.889  (near 0 ⇒ signal is telemetry, not a useful selector)
+[test] artefacts written to /fs/ess/PAS2699/kamath/fertilizer_data/fss_results/alignment_eval
+[job] DONE

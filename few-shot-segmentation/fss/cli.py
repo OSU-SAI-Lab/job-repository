@@ -133,6 +133,10 @@ def build_parser() -> argparse.ArgumentParser:
     # Evaluation / diagnostics.
     p.add_argument("--eval-variants", action="store_true",
                    help="Compute the prior_only / sam3 / granule_sam3 variants.")
+    p.add_argument("--alignment-check", action="store_true",
+                   help="Reverse prototype-alignment consistency: re-segment the "
+                        "support from the predicted query mask; report reverse-IoU "
+                        "(a label-free confidence signal; never alters the mask).")
     p.add_argument("--gt", default=None,
                    help="Ground-truth mask PNG; with --eval-variants, prints the "
                         "per-variant IoU/precision/recall comparison for this query.")
@@ -213,6 +217,7 @@ def main(argv: List[str] | None = None) -> int:
     cfg.prior_mask.prior_only_threshold = args.prior_only_threshold
     cfg.prior_mask.use_edge_snap = args.edge_snap
     cfg.eval_variants = args.eval_variants or (args.gt is not None)
+    cfg.alignment_check = args.alignment_check
     cfg.device = args.device
     cfg.dtype = args.dtype
 
@@ -236,6 +241,11 @@ def main(argv: List[str] | None = None) -> int:
         flags = result["active_flags"]
         print("[fss] active downstream flags: " + ", ".join(
             f"{k}={v}" for k, v in flags.items()))
+
+    if "alignment" in result:
+        a = result["alignment"]
+        print(f"[fss] alignment reverse-IoU={a['reverse_iou']:.3f} "
+              f"(per-support {[round(x, 3) for x in a['per_support']]})")
 
     if "variant_masks" in result:
         _print_variants(result["variant_masks"], args.gt)

@@ -140,6 +140,17 @@ class YOLOTrainer(BaseTrainer):
             "name"            : self.args.name,
         }
 
+        # Enable W&B if API key provided
+        wandb_key = getattr(self.args, 'wandb_key', None)
+        if wandb_key:
+            try:
+                import wandb
+                wandb.login(key=wandb_key)
+                train_args['project'] = getattr(self.args, 'wandb_project', 'workflow-orchestrator')
+                print(f"INFO: W&B enabled for YOLO training")
+            except Exception as e:
+                print(f"WARNING: Could not enable W&B for YOLO: {e}")
+
         self.results = self.model.train(**train_args)
 
         # Resolve actual output directory

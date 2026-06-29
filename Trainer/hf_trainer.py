@@ -22,7 +22,6 @@ from datetime import datetime
 
 from base_trainer import BaseTrainer
 
-
 class HFTrainer(BaseTrainer):
     """
     HuggingFace training backend.
@@ -135,11 +134,11 @@ class HFTrainer(BaseTrainer):
                 ignore_mismatched_sizes=True,
             )
         elif self.args.task == "segment":
-            from transformers import AutoModelForSemanticSegmentation
+            from transformers import SegformerForSemanticSegmentation
             num_classes = len(self.categories)
             id2label    = {int(k): v for k, v in self.categories.items()}
             label2id    = {v: int(k) for k, v in self.categories.items()}
-            model = AutoModelForSemanticSegmentation.from_pretrained(
+            model = SegformerForSemanticSegmentation.from_pretrained(
                 self.args.model,
                 num_labels=num_classes,
                 id2label=id2label,
@@ -169,7 +168,7 @@ class HFTrainer(BaseTrainer):
             fp16=self.args.fp16 and use_cuda,
             seed=self.args.seed,
             dataloader_num_workers=0,
-            report_to="none",
+            report_to="wandb" if getattr(self.args, "wandb_key", None) else "none",
             ddp_backend=self.args.backend if is_distributed else None,
             local_rank=local_rank,
             remove_unused_columns=False,
@@ -341,7 +340,6 @@ class HFTrainer(BaseTrainer):
                 }
                 encoding = self.processor(images=image, annotations=target, return_tensors="pt")
                 return {
-
                     "pixel_values": encoding["pixel_values"].squeeze(0),
                     "pixel_mask"  : encoding["pixel_mask"].squeeze(0),
                     "labels"      : encoding["labels"][0],
@@ -410,10 +408,10 @@ class HFTrainer(BaseTrainer):
 
     def _load_segmentation_data(self):
         """Load segmentation dataset from folder with images/ and masks/."""
-        from transformers import AutoImageProcessor
+        from transformers import SegformerImageProcessor
         from hf_seg_utils import load_segmentation_datasets
 
-        processor = AutoImageProcessor.from_pretrained(self.args.model)
+        processor = SegformerImageProcessor.from_pretrained(self.args.model)
         self.processor = processor
 
         return load_segmentation_datasets(self.args.data, processor)

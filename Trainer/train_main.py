@@ -93,6 +93,7 @@ def parse_args():
                         help="Dataset path or name. "
                              "YOLO: path to .yaml or folder. "
                              "HuggingFace: local folder or HuggingFace Hub ID.")
+
     # ── Output ────────────────────────────────
     parser.add_argument("--output_path", type=str, default=DEFAULT_OUTPUT,
                         help="Root directory for all outputs")
@@ -165,6 +166,13 @@ def parse_args():
     hf_group.add_argument("--fp16",                        action="store_true", default=False)
     hf_group.add_argument("--train_samples",               type=int,   default=100)
     hf_group.add_argument("--val_samples",                 type=int,   default=20)
+
+    # ── Weights & Biases ─────────────────────
+    wandb_group = parser.add_argument_group("Weights and Biases")
+    wandb_group.add_argument("--wandb_key",     type=str, default=None,
+                             help="W&B API key for live experiment tracking")
+    wandb_group.add_argument("--wandb_project", type=str, default="workflow-orchestrator",
+                             help="W&B project name (default: workflow-orchestrator)")
 
     return parser.parse_args()
 

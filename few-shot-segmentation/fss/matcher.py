@@ -193,6 +193,40 @@ class DINOv3Matcher:
             prior_np = (prior_np - lo) / (hi - lo + 1e-8)
         return prior_np.astype("float32")
 
+    @torch.no_grad()
+    def mask_cosine_similarities(
+        self,
+        query: Image.Image,
+        masks: Sequence[np.ndarray],
+        protos: SupportPrototypes,
+    ) -> List[float]:
+        """Per-mask DINOv3 cosine similarity to the class-support prototype.
+
+        For each SAM mask, masked-average-pool the query's dense DINOv3 patch
+        features over the mask region, L2-normalise, and score the cosine to the
+        foreground prototype (minus the background prototype when available — the
+        same fg−bg discrimination the prior uses). Used to VERIFY/filter SAM masks:
+        a mask sitting on soil pools a non-class feature and scores low.
+        """
+        if not masks:
+            return []
+        feats = self.extract_dense_features(query)      # (Hp, Wp, D), L2-normalised
+        flat = feats.flat                               # (Hp*Wp, D)
+        sims: List[float] = []
+        for m in masks:
+            cov = self._mask_to_grid(np.asarray(m), feats.hp, feats.wp)  # (Hp, Wp)
+            sel = (cov >= 0.5).reshape(-1)
+            if bool(sel.any()):
+                vec = flat[sel].mean(0)
+            else:                                       # mask smaller than one patch
+                vec = flat[int(torch.argmax(cov.reshape(-1)))]
+            vec = F.normalize(vec, dim=-1)
+            s = float(vec @ protos.fg)
+            if protos.bg is not None:
+                s -= float(vec @ protos.bg)
+            sims.append(s)
+        return sims
+
     def _prior_prototype(
         self, feats: DenseFeatures, protos: SupportPrototypes
     ) -> torch.Tensor:

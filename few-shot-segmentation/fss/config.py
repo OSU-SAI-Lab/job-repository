@@ -219,6 +219,21 @@ class PromptConfig:
     cost ~0.04 IoU on the scattered subset; 2 lets the router ACCEPT on both regimes
     (q60 dense ≈0.82, q105 scattered ≈0.45 > per-granule 0.44)."""
 
+    router_min_dense_area_frac: float = 0.05
+    """A component must occupy at least this fraction of the image to be eligible
+    for the 'dense' (box-prompt) route. A true pile is one BIG region; scattered
+    granule clusters are small even when locally packed. Below this fraction →
+    always scattered."""
+
+    router_min_dense_solidity: float = 0.5
+    """A component must FILL at least this fraction of its bounding box to be routed
+    dense. This is the decisive dense/scattered discriminator: a solid pile fills
+    its bbox (high solidity → a box prompt is mostly fertilizer), whereas granules
+    spread across a wide area fill little of their bbox (low solidity → a box would
+    swallow inter-granule soil → use per-granule). Fixes the area gate's residual
+    failure on LARGE scattered fields (e.g. q45/q90) that pass area+coverage but
+    are not solid. Below this → always scattered."""
+
 
 @dataclass
 class SegmenterConfig:
@@ -325,6 +340,19 @@ class FSSConfig:
     build a prototype FROM the predicted query mask and re-segment each support
     image, scoring reverse-IoU against the (known) support mask. Returns a
     label-free confidence signal in result['alignment']; never alters the mask."""
+
+    cosine_verify: bool = False
+    """DINOv3 feature VERIFICATION of SAM masks. After SAM segments, pool each
+    mask's DINOv3 patch features (masked-average-pool) and keep the mask only if
+    its cosine similarity to the class-support prototype (fg − bg) is at least
+    cosine_verify_threshold. Filters SAM masks that drifted onto soil / non-class
+    regions, raising precision. Off by default; the kept masks' scores are returned
+    in result['cosine_sims']."""
+
+    cosine_verify_threshold: float = 0.0
+    """Minimum mask-vs-prototype cosine score (fg − bg) to keep a SAM mask when
+    cosine_verify is on. ≈0 keeps masks whose region looks more class than
+    background; raise to demand a stronger class match (higher precision)."""
 
     device: Optional[str] = None
     """'cuda' / 'cpu' / None (auto-detect)."""

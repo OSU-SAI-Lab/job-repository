@@ -90,6 +90,12 @@ def build_parser() -> argparse.ArgumentParser:
                         "distance ≤ this (granule-diameter units).")
     p.add_argument("--router-min-seeds-dense", type=int, default=2,
                    help="Components with fewer seeds default to the box path.")
+    p.add_argument("--router-min-dense-area-frac", type=float, default=0.05,
+                   help="A component must be at least this fraction of the image to "
+                        "be routed dense (else scattered) — the area gate.")
+    p.add_argument("--router-min-dense-solidity", type=float, default=0.5,
+                   help="A component must fill at least this fraction of its bbox to "
+                        "be routed dense (else scattered) — the solidity gate.")
 
     # Small-scattered-instance (component) prompts (off by default).
     p.add_argument("--component-prompts", action="store_true",
@@ -137,6 +143,12 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Reverse prototype-alignment consistency: re-segment the "
                         "support from the predicted query mask; report reverse-IoU "
                         "(a label-free confidence signal; never alters the mask).")
+    p.add_argument("--cosine-verify", action="store_true",
+                   help="Verify each SAM mask by pooling its DINOv3 feature and "
+                        "keeping it only if cosine to the class-support prototype "
+                        "(fg-bg) >= --cosine-verify-threshold (filters soil masks).")
+    p.add_argument("--cosine-verify-threshold", type=float, default=0.0,
+                   help="Min mask-vs-prototype cosine to keep a SAM mask.")
     p.add_argument("--gt", default=None,
                    help="Ground-truth mask PNG; with --eval-variants, prints the "
                         "per-variant IoU/precision/recall comparison for this query.")
@@ -200,6 +212,8 @@ def main(argv: List[str] | None = None) -> int:
     cfg.prompts.router_seed_coverage_threshold = args.router_seed_coverage_threshold
     cfg.prompts.router_nn_distance_threshold = args.router_nn_distance_threshold
     cfg.prompts.router_min_seeds_dense = args.router_min_seeds_dense
+    cfg.prompts.router_min_dense_area_frac = args.router_min_dense_area_frac
+    cfg.prompts.router_min_dense_solidity = args.router_min_dense_solidity
     # Component prompts.
     cfg.prompts.component_prompts = args.component_prompts
     cfg.prompts.points_per_component = args.points_per_component
@@ -218,6 +232,8 @@ def main(argv: List[str] | None = None) -> int:
     cfg.prior_mask.use_edge_snap = args.edge_snap
     cfg.eval_variants = args.eval_variants or (args.gt is not None)
     cfg.alignment_check = args.alignment_check
+    cfg.cosine_verify = args.cosine_verify
+    cfg.cosine_verify_threshold = args.cosine_verify_threshold
     cfg.device = args.device
     cfg.dtype = args.dtype
 

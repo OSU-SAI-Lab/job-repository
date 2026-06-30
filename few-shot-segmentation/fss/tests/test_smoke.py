@@ -184,6 +184,24 @@ def test_router_density_metric_and_decision():
     assert gen._is_dense(tiny) is True
 
 
+def test_router_area_gate():
+    from fss.config import PromptConfig
+    from fss.prompts import PromptGenerator
+
+    gen = PromptGenerator(PromptConfig(router_seed_coverage_threshold=0.3,
+                                       router_min_seeds_dense=2,
+                                       router_min_dense_area_frac=0.05))
+    # Small but locally-packed cluster → scattered (fails the area gate) even though
+    # its seed-coverage is high. This is the misroute the area gate fixes.
+    small = dict(seed_coverage=0.9, nn_distance_norm=1.0, n_seeds=5,
+                 comp_area=100.0, comp_area_frac=0.01)
+    assert gen._is_dense(small) is False
+    # Large packed pile → dense.
+    big = dict(seed_coverage=0.9, nn_distance_norm=1.0, n_seeds=5,
+               comp_area=10000.0, comp_area_frac=0.20)
+    assert gen._is_dense(big) is True
+
+
 def test_router_routes_mixed_image():
     from fss.config import PromptConfig
     from fss.prompts import PromptGenerator
@@ -202,7 +220,8 @@ def test_router_routes_mixed_image():
     gen = PromptGenerator(PromptConfig(router=True, granule_min_distance=6,
                                        min_blob_area=64,
                                        router_seed_coverage_threshold=0.55,
-                                       router_min_seeds_dense=4))
+                                       router_min_seeds_dense=4,
+                                       router_min_dense_area_frac=0.03))
     sets = gen.generate(prior, gray=gray, expected_area=25)
 
     routes = {ps.route for ps in sets}

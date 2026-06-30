@@ -199,6 +199,7 @@ class PromptGenerator:
         comps = [labels == i for i in range(1, n + 1)]
         comps = [b for b in comps if b.sum() >= c.min_blob_area] or [fg_mask]
 
+        img_area = float(fg_mask.size)
         prompt_sets: List[PromptSet] = []
         for comp in comps:
             # Detect seeds once; reused for the density metric and (if scattered)
@@ -206,7 +207,7 @@ class PromptGenerator:
             score = self._seed_score(prior, comp, gray)
             seeds = self._detect_seeds(score, comp, c.granule_min_distance,
                                        c.max_seeds_per_region, c.granule_seed_z)
-            density = self._component_density(comp, seeds, expected_area)
+            density = self._component_density(comp, seeds, expected_area, img_area)
             route = "dense" if self._is_dense(density) else "scattered"
 
             if route == "dense":
@@ -227,6 +228,7 @@ class PromptGenerator:
         comp: np.ndarray,
         seeds: List[Tuple[int, int]],
         expected_area: Optional[float],
+        img_area: Optional[float] = None,
     ) -> dict:
         """Clumping metrics for one prior component.
 
@@ -236,9 +238,22 @@ class PromptGenerator:
         nn_distance_norm — median inter-seed nearest-neighbour distance in units of
                            granule diameter (sqrt(expected_area)); SMALL ⇒ granules
                            are touching ⇒ dense. inf when <2 seeds.
+        comp_area_frac   — component area / image area; a true pile is one BIG region
+                           (the area gate in _is_dense uses this).
         """
         comp_area = float(comp.sum())
         n = len(seeds)
+        comp_area_frac = (comp_area / img_area) if (img_area and img_area > 0) else 1.0
+
+        # Solidity = fraction of the component's bounding box that is foreground.
+        # A solid pile fills its bbox (≈1); granules spread across an area fill
+        # little of it (≪1) — the decisive dense/scattered signal.
+        ys, xs = np.where(comp)
+        if len(xs):
+            bbox_area = float((xs.max() - xs.min() + 1) * (ys.max() - ys.min() + 1))
+            solidity = comp_area / bbox_area if bbox_area > 0 else 1.0
+        else:
+            solidity = 1.0
 
         if expected_area and expected_area > 0:
             gran_area = float(expected_area)
@@ -262,13 +277,23 @@ class PromptGenerator:
             "nn_distance_norm": nn_distance_norm,
             "n_seeds": int(n),
             "comp_area": comp_area,
+            "comp_area_frac": float(comp_area_frac),
+            "solidity": float(solidity),
         }
 
     def _is_dense(self, density: dict) -> bool:
         """Apply the configured density metric + thresholds to a component."""
         c = self.config
+        # Area gate: a component too small to be a 'pile' is always scattered.
+        if density.get("comp_area_frac", 1.0) < c.router_min_dense_area_frac:
+            return False
+        # Solidity gate: a component that doesn't fill its bounding box is granules
+        # spread over an area (a box would swallow soil) → scattered. This is the
+        # decisive gate; it catches LARGE scattered fields the area gate lets through.
+        if density.get("solidity", 1.0) < c.router_min_dense_solidity:
+            return False
         if density["n_seeds"] < c.router_min_seeds_dense:
-            return True            # too few seeds to trust 'scattered'; box-friendly
+            return True            # big, solid, few seeds → a packed pile (box-friendly)
         cov_dense = density["seed_coverage"] >= c.router_seed_coverage_threshold
         nn_dense = density["nn_distance_norm"] <= c.router_nn_distance_threshold
         metric = c.router_density_metric

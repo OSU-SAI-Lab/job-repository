@@ -87,9 +87,12 @@ def save_debug_overlay(
                     cov = ps.density["seed_coverage"]
                     nn = ps.density["nn_distance_norm"]
                     nn_s = "inf" if not np.isfinite(nn) else f"{nn:.2f}"
+                    af = ps.density.get("comp_area_frac", float("nan"))
+                    sol = ps.density.get("solidity", float("nan"))
                     axes[2].text(
                         float(xs.mean()), float(ys.min()) - 4,
-                        f"{ps.route}\ncov={cov:.2f} nn={nn_s} n={ps.density['n_seeds']}",
+                        f"{ps.route}\ncov={cov:.2f} sol={sol:.2f} af={af:.3f} "
+                        f"n={ps.density['n_seeds']}",
                         color=route_color.get(ps.route, "yellow"), fontsize=7,
                         ha="center", va="bottom",
                         bbox=dict(facecolor="black", alpha=0.5, pad=1, edgecolor="none"))

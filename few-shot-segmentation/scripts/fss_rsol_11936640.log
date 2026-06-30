@@ -1,0 +1,34 @@
+[job] node=c0806.ten.osc.edu
+NVIDIA H100
+Loading weights:   0%|          | 0/211 [00:00<?, ?it/s]Loading weights: 100%|██████████| 211/211 [00:00<00:00, 14990.57it/s]
+[transformers] You are using a model of type `sam3_video` to instantiate a model of type `sam3_tracker`. This may be expected if you are loading a checkpoint that shares a subset of the architecture (e.g., loading a `sam2_video` checkpoint into `Sam2Model`), but is otherwise not supported and can yield errors. Please verify that the checkpoint is compatible with the model you are instantiating.
+Loading weights:   0%|          | 0/685 [00:00<?, ?it/s]Loading weights: 100%|██████████| 685/685 [00:00<00:00, 10722.96it/s]
+[test] device=cuda amp_dtype=torch.bfloat16 mode=crop crop=1024 dinov3=base
+[support] id=0 April1/20250401_131221273_iOS.jpg fg=0.0398 anns=62 crop=[614, 257, 1638, 1281]
+[compare] coco_q15:  boxes[IoU0.26 P0.52 R0.34 bgFP0.48]  per_granule[IoU0.37 P0.46 R0.66 bgFP0.54]  router_sol0.3[IoU0.23 P0.47 R0.30 bgFP0.53]  router_sol0.4[IoU0.40 P0.45 R0.79 bgFP0.55]  router_sol0.5[IoU0.40 P0.45 R0.79 bgFP0.55]  router_sol0.6[IoU0.40 P0.45 R0.79 bgFP0.55]
+[compare] coco_q30:  boxes[IoU0.13 P0.15 R0.51 bgFP0.85]  per_granule[IoU0.64 P0.70 R0.88 bgFP0.30]  router_sol0.3[IoU0.63 P0.69 R0.88 bgFP0.31]  router_sol0.4[IoU0.63 P0.69 R0.88 bgFP0.31]  router_sol0.5[IoU0.63 P0.69 R0.88 bgFP0.31]  router_sol0.6[IoU0.63 P0.69 R0.88 bgFP0.31]
+[compare] coco_q45:  boxes[IoU0.30 P0.45 R0.48 bgFP0.55]  per_granule[IoU0.71 P0.83 R0.83 bgFP0.17]  router_sol0.3[IoU0.67 P0.78 R0.83 bgFP0.22]  router_sol0.4[IoU0.67 P0.78 R0.83 bgFP0.22]  router_sol0.5[IoU0.67 P0.78 R0.83 bgFP0.22]  router_sol0.6[IoU0.67 P0.78 R0.83 bgFP0.22]
+[compare] coco_q60:  boxes[IoU0.82 P0.96 R0.85 bgFP0.04]  per_granule[IoU0.74 P0.96 R0.77 bgFP0.04]  router_sol0.3[IoU0.82 P0.96 R0.84 bgFP0.04]  router_sol0.4[IoU0.83 P0.96 R0.86 bgFP0.04]  router_sol0.5[IoU0.82 P0.96 R0.85 bgFP0.04]  router_sol0.6[IoU0.82 P0.96 R0.85 bgFP0.04]
+[compare] coco_q75:  boxes[IoU0.33 P0.39 R0.69 bgFP0.61]  per_granule[IoU0.71 P0.80 R0.86 bgFP0.20]  router_sol0.3[IoU0.64 P0.75 R0.82 bgFP0.25]  router_sol0.4[IoU0.67 P0.76 R0.86 bgFP0.24]  router_sol0.5[IoU0.67 P0.76 R0.86 bgFP0.24]  router_sol0.6[IoU0.67 P0.76 R0.86 bgFP0.24]
+[compare] coco_q90:  boxes[IoU0.21 P0.35 R0.35 bgFP0.65]  per_granule[IoU0.74 P0.84 R0.86 bgFP0.16]  router_sol0.3[IoU0.36 P0.79 R0.40 bgFP0.21]  router_sol0.4[IoU0.38 P0.80 R0.42 bgFP0.20]  router_sol0.5[IoU0.71 P0.80 R0.86 bgFP0.20]  router_sol0.6[IoU0.71 P0.80 R0.86 bgFP0.20]
+[compare] coco_q105:  boxes[IoU0.49 P0.55 R0.82 bgFP0.45]  per_granule[IoU0.61 P0.67 R0.87 bgFP0.33]  router_sol0.3[IoU0.57 P0.63 R0.87 bgFP0.37]  router_sol0.4[IoU0.57 P0.62 R0.88 bgFP0.38]  router_sol0.5[IoU0.57 P0.62 R0.88 bgFP0.38]  router_sol0.6[IoU0.57 P0.62 R0.88 bgFP0.38]
+[compare] unseen_20250312_152606642_iOS:  boxes[fg0.015 n1]  per_granule[fg0.012 n89]  router_sol0.3[fg0.015 n1 routes={'n_components': 1, 'dense': 1, 'scattered': 0}]  router_sol0.4[fg0.017 n1 routes={'n_components': 1, 'dense': 1, 'scattered': 0}]  router_sol0.5[fg0.015 n1 routes={'n_components': 1, 'dense': 1, 'scattered': 0}]  router_sol0.6[fg0.015 n1 routes={'n_components': 1, 'dense': 1, 'scattered': 0}]
+
+── acceptance table (IoU / P / R / bgFP per path) ──
+query                            boxes               per_granule             router_sol0.3             router_sol0.4             router_sol0.5             router_sol0.6
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+coco_q15           0.26/0.52/0.34/0.48       0.37/0.46/0.66/0.54       0.23/0.47/0.30/0.53       0.40/0.45/0.79/0.55       0.40/0.45/0.79/0.55       0.40/0.45/0.79/0.55
+coco_q30           0.13/0.15/0.51/0.85       0.64/0.70/0.88/0.30       0.63/0.69/0.88/0.31       0.63/0.69/0.88/0.31       0.63/0.69/0.88/0.31       0.63/0.69/0.88/0.31
+coco_q45           0.30/0.45/0.48/0.55       0.71/0.83/0.83/0.17       0.67/0.78/0.83/0.22       0.67/0.78/0.83/0.22       0.67/0.78/0.83/0.22       0.67/0.78/0.83/0.22
+coco_q60           0.82/0.96/0.85/0.04       0.74/0.96/0.77/0.04       0.82/0.96/0.84/0.04       0.83/0.96/0.86/0.04       0.82/0.96/0.85/0.04       0.82/0.96/0.85/0.04
+coco_q75           0.33/0.39/0.69/0.61       0.71/0.80/0.86/0.20       0.64/0.75/0.82/0.25       0.67/0.76/0.86/0.24       0.67/0.76/0.86/0.24       0.67/0.76/0.86/0.24
+coco_q90           0.21/0.35/0.35/0.65       0.74/0.84/0.86/0.16       0.36/0.79/0.40/0.21       0.38/0.80/0.42/0.20       0.71/0.80/0.86/0.20       0.71/0.80/0.86/0.20
+coco_q105          0.49/0.55/0.82/0.45       0.61/0.67/0.87/0.33       0.57/0.63/0.87/0.37       0.57/0.62/0.88/0.38       0.57/0.62/0.88/0.38       0.57/0.62/0.88/0.38
+
+── router verdict (IoU vs best pure path, per query) ──
+  router_sol0.3    needs-tuning  coco_q15:0.23vs0.37(-0.15)  coco_q30:0.63vs0.64(-0.01)  coco_q45:0.67vs0.71(-0.04)  coco_q60:0.82vs0.82(-0.00)  coco_q75:0.64vs0.71(-0.07)  coco_q90:0.36vs0.74(-0.38)  coco_q105:0.57vs0.61(-0.03)
+  router_sol0.4    needs-tuning  coco_q15:0.40vs0.37(+0.03)  coco_q30:0.63vs0.64(-0.01)  coco_q45:0.67vs0.71(-0.04)  coco_q60:0.83vs0.82(+0.01)  coco_q75:0.67vs0.71(-0.04)  coco_q90:0.38vs0.74(-0.36)  coco_q105:0.57vs0.61(-0.04)
+  router_sol0.5    needs-tuning  coco_q15:0.40vs0.37(+0.03)  coco_q30:0.63vs0.64(-0.01)  coco_q45:0.67vs0.71(-0.04)  coco_q60:0.82vs0.82(+0.00)  coco_q75:0.67vs0.71(-0.04)  coco_q90:0.71vs0.74(-0.02)  coco_q105:0.57vs0.61(-0.04)
+  router_sol0.6    needs-tuning  coco_q15:0.40vs0.37(+0.03)  coco_q30:0.63vs0.64(-0.01)  coco_q45:0.67vs0.71(-0.04)  coco_q60:0.82vs0.82(-0.00)  coco_q75:0.67vs0.71(-0.04)  coco_q90:0.71vs0.74(-0.02)  coco_q105:0.57vs0.61(-0.04)
+[test] artefacts written to /fs/ess/PAS2699/kamath/fertilizer_data/fss_results/router_solidity_eval
+[job] DONE

@@ -184,6 +184,8 @@ def main(argv=None) -> int:
     ap.add_argument("--router-seed-coverage-threshold", type=float, default=0.7)
     ap.add_argument("--router-nn-distance-threshold", type=float, default=2.0)
     ap.add_argument("--router-min-seeds-dense", type=int, default=2)
+    ap.add_argument("--router-min-dense-area-frac", type=float, default=0.05)
+    ap.add_argument("--router-min-dense-solidity", type=float, default=0.5)
     # Acceptance comparison: run boxes-only / per-granule-only / router on every
     # query and print the per-regime IoU/P/R/bgFP table in one job.
     ap.add_argument("--compare-paths", action="store_true",
@@ -191,6 +193,12 @@ def main(argv=None) -> int:
     ap.add_argument("--router-thresholds", type=float, nargs="*", default=None,
                     help="If set with --compare-paths, sweep these seed-coverage "
                          "thresholds for the router (calibration).")
+    ap.add_argument("--router-area-fracs", type=float, nargs="*", default=None,
+                    help="If set with --compare-paths, sweep these min-dense-area "
+                         "fractions for the router (area-gate calibration).")
+    ap.add_argument("--router-solidities", type=float, nargs="*", default=None,
+                    help="If set with --compare-paths, sweep these min-dense-solidity "
+                         "values for the router (solidity-gate calibration).")
     # Component prompting.
     ap.add_argument("--component-prompts", action="store_true",
                     help="One prompt set per 8-connected prior component.")
@@ -244,6 +252,8 @@ def main(argv=None) -> int:
     cfg.prompts.router_seed_coverage_threshold = args.router_seed_coverage_threshold
     cfg.prompts.router_nn_distance_threshold = args.router_nn_distance_threshold
     cfg.prompts.router_min_seeds_dense = args.router_min_seeds_dense
+    cfg.prompts.router_min_dense_area_frac = args.router_min_dense_area_frac
+    cfg.prompts.router_min_dense_solidity = args.router_min_dense_solidity
     cfg.prompts.component_prompts = args.component_prompts
     cfg.prompts.use_box_prompts = not args.no_box_prompts
     cfg.prompts.box_erode_frac = args.box_erode_frac
@@ -337,7 +347,15 @@ def main(argv=None) -> int:
 
     def build_specs() -> list:
         specs = [("boxes", "boxes", {}), ("per_granule", "per_granule", {})]
-        if args.router_thresholds:
+        if args.router_solidities:
+            for sol in args.router_solidities:
+                specs.append((f"router_sol{sol:g}", "router",
+                              {"router_min_dense_solidity": float(sol)}))
+        elif args.router_area_fracs:
+            for af in args.router_area_fracs:
+                specs.append((f"router_af{af:g}", "router",
+                              {"router_min_dense_area_frac": float(af)}))
+        elif args.router_thresholds:
             for thr in args.router_thresholds:
                 specs.append((f"router_cov{thr:g}", "router",
                               {"router_seed_coverage_threshold": float(thr)}))

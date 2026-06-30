@@ -53,6 +53,9 @@ def main(argv=None) -> int:
     ap.add_argument("--crop-size", type=int, default=1024)
     ap.add_argument("--dinov3", default="base")
     ap.add_argument("--dtype", default="bfloat16")
+    ap.add_argument("--router", action="store_true",
+                    help="Use the per-region router (dense→box, scattered→per-granule) "
+                         "instead of per-granule-everywhere.")
     args = ap.parse_args(argv)
     os.makedirs(args.out_dir, exist_ok=True)
 
@@ -64,15 +67,21 @@ def main(argv=None) -> int:
     cfg = FSSConfig()
     cfg.matcher.dinov3 = args.dinov3
     cfg.dtype = args.dtype
-    cfg.prompts.per_granule_prompts = True          # the recommended path
+    if args.router:
+        cfg.prompts.router = True                   # adaptive dense/scattered routing
+    else:
+        cfg.prompts.per_granule_prompts = True      # per-granule everywhere
     seg = FewShotSegmenter(config=cfg)
 
     p = cfg.prompts
-    print(f"[unseen] device={seg.device} amp={seg.amp_dtype}")
+    path = "router" if args.router else "per_granule"
+    print(f"[unseen] device={seg.device} amp={seg.amp_dtype} path={path}")
     print(f"[unseen] CONFIG FROM config.py → threshold={p.threshold} "
           f"seed_z={p.granule_seed_z} seed_source={p.seed_source} "
           f"min_distance={p.granule_min_distance} box_scale={p.granule_box_scale} "
-          f"neg_points={p.granule_neg_points} neg_threshold={p.neg_threshold}")
+          f"neg_points={p.granule_neg_points} neg_threshold={p.neg_threshold} "
+          f"router_area_frac={p.router_min_dense_area_frac} "
+          f"router_cov={p.router_seed_coverage_threshold}")
 
     # Support from one labelled COCO image.
     coco = R.load_coco(args.coco)
@@ -97,7 +106,7 @@ def main(argv=None) -> int:
             img = _center_crop(Image.open(os.path.join(subdir, f)).convert("RGB"),
                                args.crop_size)
             res = seg.segment(img)
-            name = f"unseen_{folder}_{os.path.splitext(f)[0]}"
+            name = f"{path}_unseen_{folder}_{os.path.splitext(f)[0]}"
             Image.fromarray(overlay_mask(img, res["mask"])).save(
                 os.path.join(args.out_dir, f"{name}_overlay.png"))
             save_mask(res["mask"], os.path.join(args.out_dir, f"{name}_mask.png"))

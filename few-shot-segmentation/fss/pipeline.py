@@ -161,7 +161,22 @@ class FewShotSegmenter:
             query, prompt_sets, return_candidates=eval_variants,
             expected_area=self._expected_area,
         )
+
+        # DINOv3 feature verification: keep only SAM masks whose pooled DINOv3
+        # feature matches the class-support prototype (cosine fg−bg). Filters masks
+        # that drifted onto soil/non-class regions before they enter the union.
+        cosine_sims: Optional[List[float]] = None
+        if self.config.cosine_verify and instances:
+            cosine_sims = self.matcher.mask_cosine_similarities(
+                query, [r.mask for r in instances], self._protos)
+            thr = self.config.cosine_verify_threshold
+            keep = [i for i, s in enumerate(cosine_sims) if s >= thr]
+            instances = [instances[i] for i in keep]
+            cosine_sims = [cosine_sims[i] for i in keep]
+
         result = self._assemble(query, prior, prompt_sets, instances)
+        if cosine_sims is not None:
+            result["cosine_sims"] = cosine_sims
 
         # Final-assembly safety: intersect with the UN-dilated prior (never dilated).
         if self.config.segmenter.intersect_prior_safety and prior is not None:
@@ -241,6 +256,8 @@ class FewShotSegmenter:
             "size_gate": s.size_gate,
             "intersect_prior_safety": s.intersect_prior_safety,
             "alignment_check": self.config.alignment_check,
+            "cosine_verify": self.config.cosine_verify,
+            "cosine_verify_threshold": self.config.cosine_verify_threshold,
             "expected_granule_area": self._expected_area,
             "output_is_prior_only": False,
         }

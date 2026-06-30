@@ -2,7 +2,7 @@
 train_main.py
 =============
 Single entry point for the Workflow Orchestrator training module.
-Supports YOLO and HuggingFace training backends via factory patterns
+Supports YOLO and HuggingFace training backends via factory pattern.
 
 Usage:
     # YOLO detection
@@ -83,7 +83,9 @@ def parse_args():
     parser.add_argument("--model",       type=str, required=True,
                         help="Model name or path. "
                              "YOLO: yolov8n.pt, yolov9c.pt etc. "
-                             "HuggingFace: google/vit-base-patch16-224 etc.")
+                             "HuggingFace classify: google/vit-base-patch16-224 "
+                             "HuggingFace detect: facebook/detr-resnet-50 "
+                             "HuggingFace segment: nvidia/mit-b0")
     parser.add_argument("--task",        type=str, required=True,
                         choices=["detect", "segment", "classify"],
                         help="Task type")
@@ -164,6 +166,13 @@ def parse_args():
     hf_group.add_argument("--fp16",                        action="store_true", default=False)
     hf_group.add_argument("--train_samples",               type=int,   default=100)
     hf_group.add_argument("--val_samples",                 type=int,   default=20)
+
+    # ── Weights & Biases ─────────────────────
+    wandb_group = parser.add_argument_group("Weights and Biases")
+    wandb_group.add_argument("--wandb_key",     type=str, default=None,
+                             help="W&B API key for live experiment tracking")
+    wandb_group.add_argument("--wandb_project", type=str, default="workflow-orchestrator",
+                             help="W&B project name (default: workflow-orchestrator)")
 
     return parser.parse_args()
 

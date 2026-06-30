@@ -2,6 +2,7 @@ Bootstrap: docker
 From: python:3.12-bullseye
 
 %files
+    ../image_discovery.py /app/image_discovery.py
     object_classification_main.py /app/object_classification_main.py
     object_classification_utils.py /app/object_classification_utils.py
     requirements.txt /app/requirements.txt # Ensure this file exists, even if empty

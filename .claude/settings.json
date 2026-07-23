@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(BASE=/fs/ess/PAS2699/kamath/corn_residue/v1 *)",
+      "Read(//fs/ess/PAS2699/kamath/corn_residue/v1/field_1/images/**)",
+      "Bash(# Check if pre-built .sif containers exist somewhere *)",
+      "Read(//fs/ess/PAS2699/**)",
+      "Bash(xargs ls -lt)",
+      "Bash(sinfo --format=\"%P %a %l %D %t\")",
+      "Bash(module avail *)",
+      "Bash(conda env *)",
+      "Bash(apptainer inspect *)",
+      "Bash(python3 -c ' *)",
+      "Bash(python -)",
+      "Bash(python -m pytest fss/tests/test_smoke.py -k \"not slow\" -q)",
+      "Bash(sed -i 's#fss_results/sweep$#fss_results/sweep_r2#' scripts/sweep_fertilizer.slurm)",
+      "Bash(sbatch --parsable scripts/sweep_fertilizer.slurm)",
+      "Bash(python -c \"import ast; [ast.parse\\(open\\(f\\).read\\(\\)\\) for f in ['fss/config.py','fss/prompts.py','fss/viz.py','fss/cli.py','scripts/run_fertilizer_test.py','scripts/run_unseen_visuals.py']]; print\\('parse OK'\\)\")",
+      "Bash(python -m fss --help)",
+      "Bash(python scripts/run_fertilizer_test.py --help)",
+      "Bash(python scripts/run_unseen_visuals.py --help)",
+      "Bash(python -c \"import ast; [ast.parse\\(open\\(f\\).read\\(\\)\\) for f in ['sam3_dino_fss/dino_embed.py','sam3_dino_fss/proposer.py','sam3_dino_fss/class_supports.py','sam3_dino_fss/pipeline.py','sam3_dino_fss/__init__.py','sam3_dino_fss/run_fertilizer.py']]; print\\('parse OK'\\)\")",
+      "Bash(python sam3_dino_fss/run_fertilizer.py --help)"
+    ]
+  }
+}

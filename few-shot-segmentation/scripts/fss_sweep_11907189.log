@@ -1,0 +1,40 @@
+[job] node=c0824.ten.osc.edu
+NVIDIA H100
+Loading weights:   0%|          | 0/211 [00:00<?, ?it/s]Loading weights: 100%|██████████| 211/211 [00:00<00:00, 7661.26it/s]
+[transformers] You are using a model of type `sam3_video` to instantiate a model of type `sam3_tracker`. This may be expected if you are loading a checkpoint that shares a subset of the architecture (e.g., loading a `sam2_video` checkpoint into `Sam2Model`), but is otherwise not supported and can yield errors. Please verify that the checkpoint is compatible with the model you are instantiating.
+Loading weights:   0%|          | 0/685 [00:00<?, ?it/s]Loading weights: 100%|██████████| 685/685 [00:00<00:00, 10324.56it/s]
+[sweep] device=cuda amp=torch.bfloat16 queries=[15, 30, 45, 60, 75, 90, 105]
+[eval] baseline threshold=0.4 granule_seed_z=1.5 granule_min_distance=6 seed_source=brightness granule_box_scale=1.0 granule_neg_points=4 mIoU=0.6410  per={15: 0.396, 30: 0.639, 45: 0.688, 60: 0.727, 75: 0.716, 90: 0.738, 105: 0.582}
+[eval] p0 threshold=0.3                         mIoU=0.6115  per={15: 0.282, 30: 0.55, 45: 0.703, 60: 0.721, 75: 0.72, 90: 0.754, 105: 0.55}
+[eval] p0 threshold=0.35                        mIoU=0.6254  per={15: 0.323, 30: 0.623, 45: 0.665, 60: 0.721, 75: 0.735, 90: 0.751, 105: 0.559}
+[eval] p0 threshold=0.45                        mIoU=0.6263  per={15: 0.413, 30: 0.642, 45: 0.639, 60: 0.728, 75: 0.665, 90: 0.719, 105: 0.577}
+[eval] p0 granule_seed_z=2.0                    mIoU=0.5916  per={15: 0.055, 30: 0.693, 45: 0.699, 60: 0.61, 75: 0.725, 90: 0.73, 105: 0.63}
+[eval] p0 granule_seed_z=2.5                    mIoU=0.4044  per={15: 0.002, 30: 0.717, 45: 0.705, 60: 0.0, 75: 0.708, 90: 0.679, 105: 0.02}
+[eval] p0 granule_min_distance=5                mIoU=0.6447  per={15: 0.375, 30: 0.64, 45: 0.705, 60: 0.738, 75: 0.716, 90: 0.739, 105: 0.599}
+[eval] p0 granule_min_distance=7                mIoU=0.6371  per={15: 0.38, 30: 0.641, 45: 0.686, 60: 0.706, 75: 0.718, 90: 0.736, 105: 0.592}
+[update] granule_min_distance 6 -> 5   running best mIoU=0.6447
+[eval] p0 seed_source=both                      mIoU=0.5145  per={15: 0.352, 30: 0.549, 45: 0.551, 60: 0.633, 75: 0.517, 90: 0.493, 105: 0.507}
+[eval] p0 granule_box_scale=0.75                mIoU=0.6335  per={15: 0.367, 30: 0.641, 45: 0.699, 60: 0.717, 75: 0.704, 90: 0.718, 105: 0.589}
+[eval] p0 granule_box_scale=1.25                mIoU=0.6125  per={15: 0.362, 30: 0.577, 45: 0.697, 60: 0.739, 75: 0.633, 90: 0.715, 105: 0.565}
+[eval] p0 granule_neg_points=2                  mIoU=0.6454  per={15: 0.373, 30: 0.637, 45: 0.709, 60: 0.744, 75: 0.712, 90: 0.737, 105: 0.607}
+[eval] p0 granule_neg_points=6                  mIoU=0.6414  per={15: 0.372, 30: 0.636, 45: 0.707, 60: 0.734, 75: 0.705, 90: 0.742, 105: 0.593}
+[update] granule_neg_points 4 -> 2   running best mIoU=0.6454
+[eval] p1 threshold=0.3                         mIoU=0.6167  per={15: 0.241, 30: 0.55, 45: 0.695, 60: 0.736, 75: 0.723, 90: 0.763, 105: 0.61}
+[eval] p1 threshold=0.35                        mIoU=0.6383  per={15: 0.311, 30: 0.627, 45: 0.695, 60: 0.736, 75: 0.735, 90: 0.758, 105: 0.605}
+[eval] p1 threshold=0.45                        mIoU=0.6333  per={15: 0.454, 30: 0.643, 45: 0.637, 60: 0.744, 75: 0.663, 90: 0.719, 105: 0.574}
+[eval] p1 granule_seed_z=2.0                    mIoU=0.5931  per={15: 0.063, 30: 0.692, 45: 0.699, 60: 0.615, 75: 0.718, 90: 0.73, 105: 0.634}
+[eval] p1 granule_seed_z=2.5                    mIoU=0.4048  per={15: 0.001, 30: 0.715, 45: 0.709, 60: 0.0, 75: 0.706, 90: 0.683, 105: 0.018}
+[eval] p1 granule_min_distance=6                mIoU=0.6418  per={15: 0.392, 30: 0.639, 45: 0.686, 60: 0.738, 75: 0.714, 90: 0.735, 105: 0.589}
+[eval] p1 granule_min_distance=7                mIoU=0.6351  per={15: 0.379, 30: 0.634, 45: 0.683, 60: 0.712, 75: 0.714, 90: 0.734, 105: 0.59}
+[eval] p1 seed_source=both                      mIoU=0.5105  per={15: 0.336, 30: 0.559, 45: 0.55, 60: 0.64, 75: 0.508, 90: 0.491, 105: 0.489}
+[eval] p1 granule_box_scale=0.75                mIoU=0.6367  per={15: 0.363, 30: 0.645, 45: 0.701, 60: 0.722, 75: 0.706, 90: 0.726, 105: 0.594}
+[eval] p1 granule_box_scale=1.25                mIoU=0.6260  per={15: 0.359, 30: 0.59, 45: 0.693, 60: 0.756, 75: 0.669, 90: 0.73, 105: 0.586}
+[eval] p1 granule_neg_points=4                  mIoU=0.6447  per={15: 0.375, 30: 0.64, 45: 0.705, 60: 0.738, 75: 0.716, 90: 0.739, 105: 0.599}
+[eval] p1 granule_neg_points=6                  mIoU=0.6414  per={15: 0.372, 30: 0.636, 45: 0.707, 60: 0.734, 75: 0.705, 90: 0.742, 105: 0.593}
+[sweep] converged after pass 1
+
+[sweep] BEST mIoU=0.6454
+[sweep] BEST config={'threshold': 0.4, 'granule_seed_z': 1.5, 'granule_min_distance': 5, 'seed_source': 'brightness', 'granule_box_scale': 1.0, 'granule_neg_points': 2}
+[sweep] BEST per-query={15: 0.373, 30: 0.637, 45: 0.709, 60: 0.744, 75: 0.712, 90: 0.737, 105: 0.607}
+[sweep] wrote /fs/ess/PAS2699/kamath/fertilizer_data/fss_results/sweep_r2/sweep_results.json
+[job] DONE

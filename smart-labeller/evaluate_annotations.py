@@ -1,25 +1,27 @@
 """
-evaluate_annotations.py - Evaluate object detection annotations against ground truth.
+evaluate_annotations.py - Evaluate instance-segmentation masks against ground truth.
 
-Calculates precision metrics by:
-1. Loading ground truth annotations
-2. Loading AI-generated annotations
-3. Filtering by similarity threshold
-4. Matching boxes using IoU (Intersection over Union)
-5. Computing precision = TP / (TP + FP)
+Computes segmentation metrics by:
+1. Loading ground-truth masks
+2. Loading generated masks (COCO RLE)
+3. Filtering generated masks by similarity/score threshold
+4. Matching masks greedily (score-descending) using mask-IoU
+5. Computing precision, recall, F1, and mIoU (mean IoU over matched pairs)
+
+Ground-truth mask formats accepted per annotation (in priority order):
+    - "segmentation": COCO RLE dict {"size":[H,W], "counts":...}
+    - "segmentation": COCO polygon [[x1,y1,x2,y2,...], ...]  (needs "height"/"width"
+      on the annotation, or --img_height/--img_width)
+    - "bounding_box": [x1,y1,x2,y2]  → rasterized to a rectangle ONLY if
+      --gt_from_box is passed (coarse fallback; not true mask quality)
 
 Usage:
     python evaluate_annotations.py \
       --gt_file path/to/ground_truth.json \
-      --generated_file path/to/generated.json \
-      --similarity_threshold 0.5 \
+      --generated_file path/to/detections.json \
+      --similarity_threshold 0.2 \
       --iou_threshold 0.5 \
       --output_path ./results
-
-Output:
-    - Precision score
-    - Per-image breakdown
-    - Detailed matching report (optional JSON)
 """
 
 import json
@@ -28,346 +30,265 @@ from pathlib import Path
 from collections import defaultdict
 
 import numpy as np
-import torch
-from torchvision.ops import box_iou
+from pycocotools import mask as coco_mask
 
 
-def load_annotations(file_path):
+# ──────────────────────────────────────────────────────────────────────────────
+# Loading / rasterizing masks
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _rle_to_bool(rle: dict) -> np.ndarray:
+    counts = rle["counts"]
+    if isinstance(counts, str):
+        counts = counts.encode("ascii")
+    r = {"size": [int(rle["size"][0]), int(rle["size"][1])], "counts": counts}
+    return coco_mask.decode(r).astype(bool)
+
+
+def _ann_to_mask(ann: dict, gt_from_box: bool, img_hw=None) -> np.ndarray:
+    """Convert one annotation into a boolean mask, or return None if not possible."""
+    seg = ann.get("segmentation")
+    if isinstance(seg, dict):                       # RLE
+        return _rle_to_bool(seg)
+    if isinstance(seg, list) and seg:               # polygon(s)
+        h = ann.get("height") or (img_hw[0] if img_hw else None)
+        w = ann.get("width") or (img_hw[1] if img_hw else None)
+        if h is None or w is None:
+            raise ValueError("Polygon GT needs image height/width "
+                             "(annotation 'height'/'width' or --img_height/--img_width).")
+        rles = coco_mask.frPyObjects(seg, int(h), int(w))
+        rle = coco_mask.merge(rles)
+        return coco_mask.decode(rle).astype(bool)
+    if gt_from_box and ann.get("bounding_box") is not None and img_hw is not None:
+        x1, y1, x2, y2 = [int(round(v)) for v in ann["bounding_box"]]
+        m = np.zeros(img_hw, dtype=bool)
+        m[max(0, y1):max(0, y2), max(0, x1):max(0, x2)] = True
+        return m
+    return None
+
+
+def load_annotations(file_path, gt_from_box=False, img_hw=None):
+    """Load annotations grouped by image_path, converting each to a boolean mask.
+
+    Returns dict[image_path -> list of {"mask", "score", "class"}].
     """
-    Load annotations from JSON file.
-    
-    Expected format:
-    {
-        "annotations": [
-            {
-                "image_path": "image_name.jpg",
-                "bounding_box": [x1, y1, x2, y2],
-                "class": "class_name",
-                "score": 0.95  # Optional, for generated annotations
-            },
-            ...
-        ]
-    }
-    
-    Returns:
-        dict: image_path -> list of annotations
-    """
-    with open(file_path, 'r') as f:
+    with open(file_path, "r") as f:
         data = json.load(f)
-    
-    annotations_by_image = defaultdict(list)
+
+    by_image = defaultdict(list)
+    skipped = 0
     for ann in data.get("annotations", []):
-        img_path = ann["image_path"]
-        annotations_by_image[img_path].append(ann)
-    
-    return annotations_by_image
+        mask = _ann_to_mask(ann, gt_from_box, img_hw)
+        if mask is None:
+            skipped += 1
+            continue
+        by_image[ann["image_path"]].append({
+            "mask":  mask,
+            "score": float(ann.get("score", 1.0)),
+            "class": ann.get("class", "object"),
+        })
+    if skipped:
+        print(f"  [WARN] {skipped} annotation(s) had no usable mask and were skipped.")
+    return by_image
 
 
-def compute_iou(box1, box2):
-    """
-    Compute IoU (Intersection over Union) between two boxes.
-    
-    Args:
-        box1, box2: [x1, y1, x2, y2]
-    
-    Returns:
-        float: IoU score (0-1)
-    """
-    boxes1 = torch.tensor([box1], dtype=torch.float32)
-    boxes2 = torch.tensor([box2], dtype=torch.float32)
-    iou = box_iou(boxes1, boxes2)
-    return iou.item()
+# ──────────────────────────────────────────────────────────────────────────────
+# Matching
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _mask_iou(a: np.ndarray, b: np.ndarray) -> float:
+    inter = np.logical_and(a, b).sum()
+    if inter == 0:
+        return 0.0
+    union = np.logical_or(a, b).sum()
+    return float(inter / union) if union > 0 else 0.0
 
 
-def match_boxes(gt_boxes, generated_boxes, iou_threshold=0.5, debug=False):
+def match_masks(gt_items, gen_items, iou_threshold=0.5):
+    """Greedy, score-descending mask matching.
+
+    Each generated mask (highest score first) claims the highest-IoU unclaimed GT
+    mask above ``iou_threshold``.  Class-agnostic, mirroring the original box
+    evaluator.
+
+    Returns matched_pairs [(gt_idx, gen_idx, iou)], unmatched_gt, unmatched_gen.
     """
-    Match generated boxes to GT boxes using IoU.
-    
-    Args:
-        gt_boxes: list of [x1, y1, x2, y2]
-        generated_boxes: list of [x1, y1, x2, y2]
-        iou_threshold: minimum IoU to consider a match
-        debug: print detailed matching info
-    
-    Returns:
-        dict with:
-            - matched_pairs: list of (gt_idx, gen_idx, iou) tuples
-            - unmatched_gt: list of GT indices
-            - unmatched_gen: list of generated indices
-    """
-    if debug:
-        print(f"\n  [Matching] GT boxes: {len(gt_boxes)}, Generated boxes: {len(generated_boxes)}")
-        if gt_boxes:
-            print(f"    GT sample: {gt_boxes[0]}")
-        if generated_boxes:
-            print(f"    Gen sample: {generated_boxes[0]}")
-    
+    order = sorted(range(len(gen_items)), key=lambda i: gen_items[i]["score"], reverse=True)
+
     matched_pairs = []
-    matched_gen_idxs = set()
-    matched_gt_idxs = set()
-    
-    # For each generated box, find best matching GT box
-    for gen_idx, gen_box in enumerate(generated_boxes):
-        best_iou = 0.0
-        best_gt_idx = -1
-        
-        for gt_idx, gt_box in enumerate(gt_boxes):
-            if gt_idx in matched_gt_idxs:
+    matched_gt = set()
+    matched_gen = set()
+
+    for gen_idx in order:
+        best_iou, best_gt = 0.0, -1
+        for gt_idx, gt in enumerate(gt_items):
+            if gt_idx in matched_gt:
                 continue
-            
-            iou = compute_iou(gt_box, gen_box)
-            if debug and gen_idx == 0 and gt_idx < 3:  # Show first generated box matching attempts
-                print(f"    gen[{gen_idx}] vs gt[{gt_idx}]: IoU={iou:.4f}")
-            
+            iou = _mask_iou(gt["mask"], gen_items[gen_idx]["mask"])
             if iou > best_iou:
-                best_iou = iou
-                best_gt_idx = gt_idx
-        
-        if debug and gen_idx < 3:
-            print(f"  gen[{gen_idx}]: best_iou={best_iou:.4f} (threshold={iou_threshold}), matched={best_iou >= iou_threshold}")
-        
-        if best_iou >= iou_threshold and best_gt_idx >= 0:
-            matched_pairs.append((best_gt_idx, gen_idx, best_iou))
-            matched_gen_idxs.add(gen_idx)
-            matched_gt_idxs.add(best_gt_idx)
-    
-    unmatched_gt = [i for i in range(len(gt_boxes)) if i not in matched_gt_idxs]
-    unmatched_gen = [i for i in range(len(generated_boxes)) if i not in matched_gen_idxs]
-    
-    return {
-        "matched_pairs": matched_pairs,
-        "unmatched_gt": unmatched_gt,
-        "unmatched_gen": unmatched_gen,
-    }
+                best_iou, best_gt = iou, gt_idx
+        if best_iou >= iou_threshold and best_gt >= 0:
+            matched_pairs.append((best_gt, gen_idx, best_iou))
+            matched_gt.add(best_gt)
+            matched_gen.add(gen_idx)
+
+    unmatched_gt  = [i for i in range(len(gt_items)) if i not in matched_gt]
+    unmatched_gen = [i for i in range(len(gen_items)) if i not in matched_gen]
+    return matched_pairs, unmatched_gt, unmatched_gen
 
 
-def evaluate(gt_annotations, generated_annotations, similarity_threshold=0.5, iou_threshold=0.5, debug=False):
-    """
-    Evaluate generated annotations against ground truth.
-    
-    Args:
-        gt_annotations: dict[image_path -> list of GT annotations]
-        generated_annotations: dict[image_path -> list of generated annotations]
-        similarity_threshold: filter generated annotations by score (optional)
-        iou_threshold: minimum IoU to consider a match
-        debug: print detailed matching info
-    
-    Returns:
-        dict with metrics and per-image breakdown
-    """
-    total_tp = 0
-    total_fp = 0
-    total_fn = 0
-    
+# ──────────────────────────────────────────────────────────────────────────────
+# Evaluation
+# ──────────────────────────────────────────────────────────────────────────────
+
+def evaluate(gt_annotations, gen_annotations, similarity_threshold=0.0, iou_threshold=0.5):
+    total_tp = total_fp = total_fn = 0
+    matched_ious = []
+    per_class_iou = defaultdict(list)
     per_image_results = {}
-    
-    # Get all unique images from both GT and generated
-    all_images = set(gt_annotations.keys()) | set(generated_annotations.keys())
-    
-    if debug:
-        print(f"\n[Evaluation] GT images: {len(gt_annotations)}, Generated images: {len(generated_annotations)}")
-        print(f"[Evaluation] Unique images: {len(all_images)}")
-        if gt_annotations and generated_annotations:
-            gt_keys = list(gt_annotations.keys())[:3]
-            gen_keys = list(generated_annotations.keys())[:3]
-            print(f"  Sample GT keys: {gt_keys}")
-            print(f"  Sample Gen keys: {gen_keys}")
-    
+
+    all_images = set(gt_annotations) | set(gen_annotations)
+
     for image_path in sorted(all_images):
-        gt_anns = gt_annotations.get(image_path, [])
-        gen_anns = generated_annotations.get(image_path, [])
-        
-        # Filter generated annotations by similarity threshold
+        gt_items  = gt_annotations.get(image_path, [])
+        gen_items = gen_annotations.get(image_path, [])
+
         if similarity_threshold > 0:
-            gen_anns = [ann for ann in gen_anns if ann.get("score", 1.0) >= similarity_threshold]
-        
-        # Extract bounding boxes
-        gt_boxes = [ann["bounding_box"] for ann in gt_anns]
-        gen_boxes = [ann["bounding_box"] for ann in gen_anns]
-        
-        if debug and (len(gt_boxes) > 0 or len(gen_boxes) > 0):
-            print(f"\n[Image] {image_path}")
-            print(f"  GT boxes: {gt_boxes}")
-            print(f"  Gen boxes: {gen_boxes}")
-        
-        # Match boxes
-        matching = match_boxes(gt_boxes, gen_boxes, iou_threshold=iou_threshold, debug=debug)
-        
-        # Count TP, FP, FN for this image
-        num_tp = len(matching["matched_pairs"])
-        num_fp = len(matching["unmatched_gen"])
-        num_fn = len(matching["unmatched_gt"])
-        
+            gen_items = [g for g in gen_items if g["score"] >= similarity_threshold]
+
+        matched, unmatched_gt, unmatched_gen = match_masks(
+            gt_items, gen_items, iou_threshold=iou_threshold
+        )
+
+        num_tp, num_fp, num_fn = len(matched), len(unmatched_gen), len(unmatched_gt)
         total_tp += num_tp
         total_fp += num_fp
         total_fn += num_fn
-        
-        # Store per-image result
+
+        for gt_idx, gen_idx, iou in matched:
+            matched_ious.append(iou)
+            per_class_iou[gt_items[gt_idx]["class"]].append(iou)
+
         per_image_results[image_path] = {
-            "num_gt": len(gt_boxes),
-            "num_generated": len(gen_boxes),
-            "num_tp": num_tp,
-            "num_fp": num_fp,
-            "num_fn": num_fn,
-            "matched_pairs": matching["matched_pairs"],
-            "precision": num_tp / (num_tp + num_fp) if (num_tp + num_fp) > 0 else 0.0,
-            "recall": num_tp / (num_tp + num_fn) if (num_tp + num_fn) > 0 else 0.0,
+            "num_gt":        len(gt_items),
+            "num_generated": len(gen_items),
+            "num_tp":        num_tp,
+            "num_fp":        num_fp,
+            "num_fn":        num_fn,
+            "mean_iou":      float(np.mean([m[2] for m in matched])) if matched else 0.0,
+            "precision":     num_tp / (num_tp + num_fp) if (num_tp + num_fp) else 0.0,
+            "recall":        num_tp / (num_tp + num_fn) if (num_tp + num_fn) else 0.0,
         }
-    
-    # Calculate overall metrics
-    precision = total_tp / (total_tp + total_fp) if (total_tp + total_fp) > 0 else 0.0
-    recall = total_tp / (total_tp + total_fn) if (total_tp + total_fn) > 0 else 0.0
-    f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
-    
+
+    precision = total_tp / (total_tp + total_fp) if (total_tp + total_fp) else 0.0
+    recall    = total_tp / (total_tp + total_fn) if (total_tp + total_fn) else 0.0
+    f1        = 2 * precision * recall / (precision + recall) if (precision + recall) else 0.0
+    mIoU      = float(np.mean(matched_ious)) if matched_ious else 0.0
+    per_class_mIoU = {c: float(np.mean(v)) for c, v in per_class_iou.items()}
+
     return {
-        "total_tp": total_tp,
-        "total_fp": total_fp,
-        "total_fn": total_fn,
-        "precision": precision,
-        "recall": recall,
-        "f1": f1,
+        "total_tp": total_tp, "total_fp": total_fp, "total_fn": total_fn,
+        "precision": precision, "recall": recall, "f1": f1,
+        "mIoU": mIoU, "per_class_mIoU": per_class_mIoU,
         "per_image": per_image_results,
     }
 
 
 def print_results(results, verbose=False):
-    """Print evaluation results in a human-readable format."""
-    print("\n" + "="*70)
-    print("OBJECT DETECTION EVALUATION RESULTS")
-    print("="*70)
-    
-    print(f"\nOverall Metrics:")
+    print("\n" + "=" * 70)
+    print("INSTANCE SEGMENTATION EVALUATION RESULTS")
+    print("=" * 70)
+    print(f"\nOverall Metrics (class-agnostic matching):")
     print(f"  True Positives (TP):  {results['total_tp']}")
     print(f"  False Positives (FP): {results['total_fp']}")
     print(f"  False Negatives (FN): {results['total_fn']}")
     print(f"\n  Precision: {results['precision']:.4f} (TP / (TP + FP))")
     print(f"  Recall:    {results['recall']:.4f} (TP / (TP + FN))")
     print(f"  F1-Score:  {results['f1']:.4f}")
-    
+    print(f"  mIoU:      {results['mIoU']:.4f} (mean mask-IoU over matched pairs)")
+
+    if results["per_class_mIoU"]:
+        print(f"\n  Per-class mIoU:")
+        for c, v in sorted(results["per_class_mIoU"].items()):
+            print(f"    {c:<20} {v:.4f}")
+
     if verbose:
         print(f"\nPer-Image Breakdown:")
         print("-" * 70)
-        for image_path, img_result in results['per_image'].items():
+        for image_path, r in results["per_image"].items():
             print(f"\n  {Path(image_path).name}:")
-            print(f"    GT boxes:       {img_result['num_gt']}")
-            print(f"    Generated:      {img_result['num_generated']}")
-            print(f"    Matched (TP):   {img_result['num_tp']}")
-            print(f"    False Pos (FP): {img_result['num_fp']}")
-            print(f"    False Neg (FN): {img_result['num_fn']}")
-            print(f"    Precision:      {img_result['precision']:.4f}")
-            print(f"    Recall:         {img_result['recall']:.4f}")
-    
-    print("\n" + "="*70)
+            print(f"    GT masks:       {r['num_gt']}")
+            print(f"    Generated:      {r['num_generated']}")
+            print(f"    Matched (TP):   {r['num_tp']}")
+            print(f"    False Pos (FP): {r['num_fp']}")
+            print(f"    False Neg (FN): {r['num_fn']}")
+            print(f"    Mean IoU:       {r['mean_iou']:.4f}")
+            print(f"    Precision:      {r['precision']:.4f}")
+            print(f"    Recall:         {r['recall']:.4f}")
+    print("\n" + "=" * 70)
 
 
 def save_results(results, output_path):
-    """Save evaluation results to JSON file."""
     output_path = Path(output_path)
     output_path.mkdir(parents=True, exist_ok=True)
-    
-    # Save summary
+
     summary = {
-        "total_tp": results['total_tp'],
-        "total_fp": results['total_fp'],
-        "total_fn": results['total_fn'],
-        "precision": results['precision'],
-        "recall": results['recall'],
-        "f1": results['f1'],
+        "total_tp": results["total_tp"], "total_fp": results["total_fp"],
+        "total_fn": results["total_fn"], "precision": results["precision"],
+        "recall": results["recall"], "f1": results["f1"],
+        "mIoU": results["mIoU"], "per_class_mIoU": results["per_class_mIoU"],
     }
-    summary_path = output_path / "summary.json"
-    with open(summary_path, 'w') as f:
+    with open(output_path / "summary.json", "w") as f:
         json.dump(summary, f, indent=2)
-    print(f"\nSummary saved to: {summary_path}")
-    
-    # Save detailed results
-    detailed_path = output_path / "detailed_results.json"
-    with open(detailed_path, 'w') as f:
-        # Convert per_image results to JSON-serializable format
-        results_to_save = {
-            "summary": summary,
-            "per_image": {
-                img_path: {
-                    "num_gt": res['num_gt'],
-                    "num_generated": res['num_generated'],
-                    "num_tp": res['num_tp'],
-                    "num_fp": res['num_fp'],
-                    "num_fn": res['num_fn'],
-                    "precision": res['precision'],
-                    "recall": res['recall'],
-                    "matched_pairs": res['matched_pairs'],
-                }
-                for img_path, res in results['per_image'].items()
-            }
-        }
-        json.dump(results_to_save, f, indent=2)
-    print(f"Detailed results saved to: {detailed_path}")
+    print(f"\nSummary saved to: {output_path / 'summary.json'}")
+
+    detailed = {"summary": summary, "per_image": results["per_image"]}
+    with open(output_path / "detailed_results.json", "w") as f:
+        json.dump(detailed, f, indent=2)
+    print(f"Detailed results saved to: {output_path / 'detailed_results.json'}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Evaluate object detection annotations against ground truth."
+        description="Evaluate instance-segmentation masks against ground truth."
     )
-    parser.add_argument(
-        "--gt_file",
-        type=str,
-        required=True,
-        help="Path to ground truth annotations JSON file"
-    )
-    parser.add_argument(
-        "--generated_file",
-        type=str,
-        required=True,
-        help="Path to AI-generated annotations JSON file"
-    )
-    parser.add_argument(
-        "--similarity_threshold",
-        type=float,
-        default=0.0,
-        help="Filter generated annotations by score/confidence threshold (default: 0.0, no filtering)"
-    )
-    parser.add_argument(
-        "--iou_threshold",
-        type=float,
-        default=0.5,
-        help="Minimum IoU to consider a match between generated and GT box (default: 0.5)"
-    )
-    parser.add_argument(
-        "--output_path",
-        type=str,
-        default="./evaluation_results",
-        help="Path to save detailed results (default: ./evaluation_results)"
-    )
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Print per-image breakdown"
-    )
-    
+    parser.add_argument("--gt_file", type=str, required=True,
+                        help="Path to ground truth annotations JSON (with masks)")
+    parser.add_argument("--generated_file", type=str, required=True,
+                        help="Path to generated detections JSON (RLE masks)")
+    parser.add_argument("--similarity_threshold", type=float, default=0.0,
+                        help="Filter generated masks by score (default: 0.0)")
+    parser.add_argument("--iou_threshold", type=float, default=0.5,
+                        help="Minimum mask-IoU to count a match (default: 0.5)")
+    parser.add_argument("--gt_from_box", action="store_true",
+                        help="If GT has only bounding_box, rasterize it to a rectangle "
+                             "(coarse fallback; not true mask quality)")
+    parser.add_argument("--img_height", type=int, default=None,
+                        help="Image height for polygon/box GT lacking size fields")
+    parser.add_argument("--img_width", type=int, default=None,
+                        help="Image width for polygon/box GT lacking size fields")
+    parser.add_argument("--output_path", type=str, default="./evaluation_results")
+    parser.add_argument("--verbose", action="store_true", help="Print per-image breakdown")
     args = parser.parse_args()
-    
-    print(f"Loading ground truth annotations from: {args.gt_file}")
-    gt_annotations = load_annotations(args.gt_file)
-    print(f"  Loaded {len(gt_annotations)} images with {sum(len(v) for v in gt_annotations.values())} boxes")
-    
-    print(f"Loading generated annotations from: {args.generated_file}")
-    generated_annotations = load_annotations(args.generated_file)
-    print(f"  Loaded {len(generated_annotations)} images with {sum(len(v) for v in generated_annotations.values())} boxes")
-    
-    print(f"\nEvaluating with:")
-    print(f"  Similarity threshold: {args.similarity_threshold}")
-    print(f"  IoU threshold:        {args.iou_threshold}")
-    
-    # Evaluate
+
+    img_hw = None
+    if args.img_height and args.img_width:
+        img_hw = (args.img_height, args.img_width)
+
+    print(f"Loading ground truth from: {args.gt_file}")
+    gt_annotations = load_annotations(args.gt_file, gt_from_box=args.gt_from_box, img_hw=img_hw)
+    print(f"  {len(gt_annotations)} images, {sum(len(v) for v in gt_annotations.values())} masks")
+
+    print(f"Loading generated from: {args.generated_file}")
+    gen_annotations = load_annotations(args.generated_file, img_hw=img_hw)
+    print(f"  {len(gen_annotations)} images, {sum(len(v) for v in gen_annotations.values())} masks")
+
+    print(f"\nEvaluating: similarity_threshold={args.similarity_threshold}, "
+          f"iou_threshold={args.iou_threshold}")
     results = evaluate(
-        gt_annotations,
-        generated_annotations,
+        gt_annotations, gen_annotations,
         similarity_threshold=args.similarity_threshold,
         iou_threshold=args.iou_threshold,
-        debug=args.verbose,
     )
-    
-    # Print results
     print_results(results, verbose=args.verbose)
-    
-    # Save results
     save_results(results, args.output_path)

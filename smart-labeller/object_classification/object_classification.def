@@ -4,6 +4,7 @@ From: python:3.12-bullseye
 %files
     object_classification_main.py /app/object_classification_main.py
     object_classification_utils.py /app/object_classification_utils.py
+    ../proposal/mask_utils.py /app/mask_utils.py
     requirements.txt /app/requirements.txt # Ensure this file exists, even if empty
 
 %environment
@@ -37,6 +38,7 @@ From: python:3.12-bullseye
     echo "Making object_classification_main.py executable"
     chmod -R 777 /app/object_classification_main.py
     chmod -R 777 /app/object_classification_utils.py
+    chmod -R 777 /app/mask_utils.py
     echo "Setup complete."
 
 %runscript
@@ -46,5 +48,5 @@ From: python:3.12-bullseye
 %labels
     Maintainer "Brijesh Nanda <brundayogananda.1@osu.edu>"
     Version "1.0"
-    Appname "Object Classifier"
-    Description "object classification using OWL v2 model"   
+    Appname "Mask Classifier"
+    Description "few-shot mask classification using DINOv3 cosine similarity"

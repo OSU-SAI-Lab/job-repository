@@ -1,22 +1,0 @@
-[job] node=c0810.ten.osc.edu
-NVIDIA H100
-Loading weights:   0%|          | 0/211 [00:00<?, ?it/s]Loading weights: 100%|██████████| 211/211 [00:00<00:00, 6696.52it/s]
-[transformers] You are using a model of type `sam3_video` to instantiate a model of type `sam3_tracker`. This may be expected if you are loading a checkpoint that shares a subset of the architecture (e.g., loading a `sam2_video` checkpoint into `Sam2Model`), but is otherwise not supported and can yield errors. Please verify that the checkpoint is compatible with the model you are instantiating.
-Loading weights:   0%|          | 0/685 [00:00<?, ?it/s]Loading weights:  10%|█         | 71/685 [00:00<00:00, 681.37it/s]Loading weights:  32%|███▏      | 217/685 [00:00<00:00, 1095.35it/s]Loading weights:  48%|████▊     | 327/685 [00:00<00:00, 1029.87it/s]Loading weights: 100%|██████████| 685/685 [00:00<00:00, 1789.72it/s]
-[test] device=cuda amp_dtype=torch.bfloat16 mode=crop crop=1024 dinov3=base
-[support] id=0 April1/20250401_131221273_iOS.jpg fg=0.0398 anns=62 crop=[614, 257, 1638, 1281]
-[compare] coco_q60:  boxes[IoU0.83 P0.96 R0.86 bgFP0.04]  per_granule[IoU0.73 P0.96 R0.75 bgFP0.04]  router_cov0.7[IoU0.82 P0.96 R0.85 bgFP0.04]  router_cov0.8[IoU0.82 P0.96 R0.85 bgFP0.04]  router_cov0.9[IoU0.73 P0.96 R0.75 bgFP0.04]
-[compare] coco_q105:  boxes[IoU0.38 P0.42 R0.78 bgFP0.58]  per_granule[IoU0.44 P0.58 R0.64 bgFP0.42]  router_cov0.7[IoU0.45 P0.56 R0.69 bgFP0.44]  router_cov0.8[IoU0.45 P0.56 R0.69 bgFP0.44]  router_cov0.9[IoU0.46 P0.57 R0.69 bgFP0.43]
-
-── acceptance table (IoU / P / R / bgFP per path) ──
-query                            boxes               per_granule             router_cov0.7             router_cov0.8             router_cov0.9
-----------------------------------------------------------------------------------------------------------------------------------------------
-coco_q60           0.83/0.96/0.86/0.04       0.73/0.96/0.75/0.04       0.82/0.96/0.85/0.04       0.82/0.96/0.85/0.04       0.73/0.96/0.75/0.04
-coco_q105          0.38/0.42/0.78/0.58       0.44/0.58/0.64/0.42       0.45/0.56/0.69/0.44       0.45/0.56/0.69/0.44       0.46/0.57/0.69/0.43
-
-── router verdict (IoU vs best pure path, per query) ──
-  router_cov0.7    ACCEPT  coco_q60:0.82vs0.83(-0.01)  coco_q105:0.45vs0.44(+0.01)
-  router_cov0.8    ACCEPT  coco_q60:0.82vs0.83(-0.01)  coco_q105:0.45vs0.44(+0.01)
-  router_cov0.9    needs-tuning  coco_q60:0.73vs0.83(-0.10)  coco_q105:0.46vs0.44(+0.02)
-[test] artefacts written to /fs/ess/PAS2699/kamath/fertilizer_data/fss_results/router_calib
-[job] DONE

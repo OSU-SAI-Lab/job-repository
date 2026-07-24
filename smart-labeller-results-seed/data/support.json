@@ -1,0 +1,104 @@
+{
+  "annotations": [
+    {
+      "image_path": "20250401_131221273_iOS.jpg",
+      "class": "seed",
+      "bounding_box": [
+        1648,
+        860,
+        1683,
+        894
+      ]
+    },
+    {
+      "image_path": "20250401_131221273_iOS.jpg",
+      "class": "seed",
+      "bounding_box": [
+        756,
+        681,
+        790,
+        716
+      ]
+    },
+    {
+      "image_path": "20250401_131221273_iOS.jpg",
+      "class": "seed",
+      "bounding_box": [
+        1009,
+        905,
+        1043,
+        954
+      ]
+    },
+    {
+      "image_path": "20250401_131221273_iOS.jpg",
+      "class": "seed",
+      "bounding_box": [
+        830,
+        726,
+        865,
+        761
+      ]
+    },
+    {
+      "image_path": "20250401_131221273_iOS.jpg",
+      "class": "seed",
+      "bounding_box": [
+        1053,
+        964,
+        1088,
+        999
+      ]
+    },
+    {
+      "image_path": "20250401_131221273_iOS.jpg",
+      "class": "seed",
+      "bounding_box": [
+        1187,
+        711,
+        1222,
+        746
+      ]
+    },
+    {
+      "image_path": "20250401_131221273_iOS.jpg",
+      "class": "seed",
+      "bounding_box": [
+        979,
+        741,
+        1013,
+        775
+      ]
+    },
+    {
+      "image_path": "20250401_131221273_iOS.jpg",
+      "class": "seed",
+      "bounding_box": [
+        1499,
+        949,
+        1519,
+        984
+      ]
+    },
+    {
+      "image_path": "20250401_131221273_iOS.jpg",
+      "class": "seed",
+      "bounding_box": [
+        1009,
+        726,
+        1043,
+        761
+      ]
+    },
+    {
+      "image_path": "20250401_131221273_iOS.jpg",
+      "class": "seed",
+      "bounding_box": [
+        1276,
+        979,
+        1296,
+        1013
+      ]
+    }
+  ]
+}

@@ -1,11 +1,0 @@
-Loading weights:   0%|          | 0/211 [00:00<?, ?it/s]Loading weights: 100%|██████████| 211/211 [00:00<00:00, 7246.66it/s]
-[transformers] You are using a model of type `sam3_video` to instantiate a model of type `sam3_tracker`. This may be expected if you are loading a checkpoint that shares a subset of the architecture (e.g., loading a `sam2_video` checkpoint into `Sam2Model`), but is otherwise not supported and can yield errors. Please verify that the checkpoint is compatible with the model you are instantiating.
-Loading weights:   0%|          | 0/685 [00:00<?, ?it/s]Loading weights:  26%|██▌       | 176/685 [00:00<00:00, 1720.43it/s]Loading weights:  51%|█████     | 349/685 [00:00<00:00, 1667.23it/s]Loading weights:  75%|███████▌  | 516/685 [00:00<00:00, 1628.07it/s]Loading weights: 100%|██████████| 685/685 [00:00<00:00, 2053.51it/s]
-[test] device=cuda amp_dtype=torch.bfloat16 mode=crop crop=1024 dinov3=base
-[support] id=0 April1/20250401_131221273_iOS.jpg fg=0.0398 anns=62 crop=[614, 257, 1638, 1281]
-[query] coco_q105: instances=9 score=0.809 IoU=0.386
-[query] coco_q60: instances=1 score=0.738 IoU=0.817
-
-[test] mean IoU over 2 GT queries = 0.6016
-[test] artefacts written to /fs/ess/PAS2699/kamath/fertilizer_data/fss_results/multi_instance
-[job] DONE

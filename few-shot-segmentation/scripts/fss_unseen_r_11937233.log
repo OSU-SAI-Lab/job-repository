@@ -1,16 +1,0 @@
-[job] node=c0815.ten.osc.edu
-NVIDIA H100
-Loading weights:   0%|          | 0/211 [00:00<?, ?it/s]Loading weights: 100%|██████████| 211/211 [00:00<00:00, 6998.52it/s]
-[transformers] You are using a model of type `sam3_video` to instantiate a model of type `sam3_tracker`. This may be expected if you are loading a checkpoint that shares a subset of the architecture (e.g., loading a `sam2_video` checkpoint into `Sam2Model`), but is otherwise not supported and can yield errors. Please verify that the checkpoint is compatible with the model you are instantiating.
-Loading weights:   0%|          | 0/685 [00:00<?, ?it/s]Loading weights:  16%|█▌        | 111/685 [00:00<00:00, 1109.76it/s]Loading weights:  33%|███▎      | 228/685 [00:00<00:00, 1124.41it/s]Loading weights:  64%|██████▍   | 440/685 [00:00<00:00, 1321.11it/s]Loading weights: 100%|██████████| 685/685 [00:00<00:00, 1625.64it/s]
-[unseen] device=cuda amp=torch.bfloat16 path=router
-[unseen] CONFIG FROM config.py → threshold=0.4 seed_z=1.5 seed_source=brightness min_distance=5 box_scale=1.0 neg_points=2 neg_threshold=0.4 router_area_frac=0.05 router_cov=0.7
-[support] id=0 April1/20250401_131221273_iOS.jpg anns=62
-[query] router_unseen_March13_20250312_152606642_iOS: instances=1 fg_fraction=0.0146 best_score=0.789
-[query] router_unseen_March13_20250312_152616028_iOS: instances=1 fg_fraction=0.0377 best_score=0.676
-[query] router_unseen_March13_20250312_152630677_iOS: instances=24 fg_fraction=0.0925 best_score=0.832
-[query] router_unseen_March14_20250314_132532888_iOS: instances=1 fg_fraction=0.0237 best_score=0.816
-[query] router_unseen_March14_20250314_132542598_iOS: instances=1 fg_fraction=0.0271 best_score=0.602
-[query] router_unseen_March14_20250314_132545424_iOS: instances=81 fg_fraction=0.0162 best_score=0.914
-[unseen] wrote 6 unseen results (overlay+debug+mask) to /users/PAS2699/naveenkamath/job-repository/few-shot-segmentation/fss/results
-[job] DONE

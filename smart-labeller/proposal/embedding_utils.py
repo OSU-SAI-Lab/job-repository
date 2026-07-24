@@ -1,43 +1,37 @@
 """
-proposal/embedding_utils.py  –  Unified embedding interface.
+proposal/embedding_utils.py  –  DINOv3 embedding interface (segmentation pipeline).
 
-Supported backends
-------------------
-  bioclip  – BioCLIP  (ViT-B/16 CLIP, dim=512)
-  dinov3   – DINOv3   (ViT-L pooler_output, dim=1024 default)
-  owlv2    – OWLv2    (vision backbone pooler_output, dim=1024)
+Only ONE backend exists: DINOv3 (ViT-L pooler_output, dim=1024).  OWLv2 and
+BioCLIP were removed when the pipeline became SAM3 (masks) + DINOv3 (embeddings)
+only.
 
-Design principles
------------------
-- ALL backends produce embeddings in the SAME space used by class_supports_utils.py.
-  This is the fundamental contract: class supports and proposals MUST share the
-  same vector space for cosine similarity to be valid.
+Embedding-space contract
+-------------------------
+Class supports and proposals MUST be embedded through the identical path so that
+cosine similarity at classification time is valid.  That path is:
 
-- OWLv2: uses `owlv2.vision_model.pooler_output` (dim=1024) — NOT class_predictor
-  (dim=512). Both supports and proposals use this identical path.
+    mask → mask_extent_crop (zero background, crop to the mask's tight extent)
+         → DINOv3 pooler_output → L2-normalise
 
-- Tensors remain on GPU throughout batch loops; a single .cpu() call happens
-  once after concatenation, minimising CPU<->GPU transfers.
-
-- Models are loaded once per process. Instantiate with get_embedder() and reuse.
+``class_supports_utils.py`` uses the SAME DINOv3 + ``mask_extent_crop`` path.
 
 Public API
 ----------
-get_embedder(backend, **kwargs) -> BaseEmbedder
-BaseEmbedder.embed(images)      -> Tensor (N, D) CPU float32 L2-normed
-BaseEmbedder.embed_boxes(image, boxes) -> Tensor (N, D) CPU float32 L2-normed
+get_embedder(backend="dinov3", **kwargs) -> DINOv3Embedder
+DINOv3Embedder.embed(images)             -> Tensor (N, D) CPU float32 L2-normed
+DINOv3Embedder.embed_masks(image, masks) -> Tensor (N, D) CPU float32 L2-normed
 """
 
 from __future__ import annotations
 
 import logging
 import sys
-from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import List, Union
+from typing import List, Sequence, Union
 
 logger = logging.getLogger(__name__)
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 from PIL import Image
@@ -46,78 +40,23 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from proposal.mask_utils import mask_extent_crop
+
 DEVICE      = "cuda" if torch.cuda.is_available() else "cpu"
 TORCH_DTYPE = torch.float16 if torch.cuda.is_available() else torch.float32
 
 
 # ---------------------------------------------------------------------------
-# Base class
+# DINOv3  (dim=1024 for vitl16)
 # ---------------------------------------------------------------------------
 
-class BaseEmbedder(ABC):
-
-    @abstractmethod
-    def embed(self, images: Union[Image.Image, List[Image.Image]]) -> torch.Tensor:
-        """Return CPU float32 L2-normed tensor (N, D)."""
-
-    def embed_boxes(self, image: Image.Image, boxes: List[List[float]]) -> torch.Tensor:
-        """Crop boxes from image and embed. Returns (N, D) CPU float32."""
-        crops = []
-        for box in boxes:
-            x1, y1, x2, y2 = map(int, box)
-            x1, y1 = max(0, x1), max(0, y1)
-            x2, y2 = min(image.width, x2), min(image.height, y2)
-            crops.append(image.crop((x1, y1, x2, y2)) if x2 > x1 and y2 > y1
-                         else Image.new("RGB", (1, 1)))
-        return self.embed(crops)
-
-    @staticmethod
-    def _normalise(t: torch.Tensor) -> torch.Tensor:
-        return F.normalize(t.float(), dim=-1)
-
-
-# ---------------------------------------------------------------------------
-# BioCLIP  (dim=512)
-# ---------------------------------------------------------------------------
-
-class BioCLIPEmbedder(BaseEmbedder):
-    """
-    BioCLIP via bioclip.predict.BaseClassifier.
-    Output dim: 512 (ViT-B/16 CLIP image encoder).
-    """
-
-    def __init__(self, batch_size: int = 32, **_):
-        from bioclip.predict import BaseClassifier  # type: ignore
-        self.batch_size = batch_size
-        self._clf = BaseClassifier(device=DEVICE)
-        self._clf.model.eval()
-        logger.info(f"Loaded BioCLIP ViT-B/16 on {DEVICE} | dim=512")
-
-    def embed(self, images: Union[Image.Image, List[Image.Image]]) -> torch.Tensor:
-        if not isinstance(images, list):
-            images = [images]
-        all_embs = []
-        with torch.no_grad():
-            for i in range(0, len(images), self.batch_size):
-                emb = self._clf.create_image_features(
-                    images[i: i + self.batch_size], normalize=False
-                )  # (B, 512) on model device
-                all_embs.append(emb)
-        # Single normalise + single .cpu() transfer
-        return self._normalise(torch.cat(all_embs, dim=0)).cpu()
-
-
-# ---------------------------------------------------------------------------
-# DINOv3  (dim=1024 for vitl, 384 for vits)
-# ---------------------------------------------------------------------------
-
-class DINOv3Embedder(BaseEmbedder):
+class DINOv3Embedder:
     """
     DINOv3 via HuggingFace AutoModel (pooler_output).
     Default model: facebook/dinov3-vitl16-pretrain-lvd1689m (dim=1024).
 
-    The model_id MUST match what class_supports_utils uses so that
-    supports and proposals share the same embedding space.
+    The model_id MUST match what class_supports_utils uses so that supports and
+    proposals share the same embedding space.
     """
 
     DEFAULT_MODEL_ID = "facebook/dinov3-vitl16-pretrain-lvd1689m"
@@ -130,9 +69,16 @@ class DINOv3Embedder(BaseEmbedder):
         dim = self._model.config.hidden_size
         logger.info(f"Loaded {model_id} on {DEVICE} | dim={dim}")
 
+    @staticmethod
+    def _normalise(t: torch.Tensor) -> torch.Tensor:
+        return F.normalize(t.float(), dim=-1)
+
     def embed(self, images: Union[Image.Image, List[Image.Image]]) -> torch.Tensor:
+        """Return CPU float32 L2-normed tensor (N, D) for a list of PIL crops."""
         if not isinstance(images, list):
             images = [images]
+        if len(images) == 0:
+            return torch.empty((0, self._model.config.hidden_size), dtype=torch.float32)
         all_embs = []
         with torch.no_grad():
             for i in range(0, len(images), self.batch_size):
@@ -143,70 +89,34 @@ class DINOv3Embedder(BaseEmbedder):
                 all_embs.append(out.pooler_output)  # (B, D) stays on GPU
         return self._normalise(torch.cat(all_embs, dim=0)).cpu()
 
+    def embed_masks(
+        self,
+        image: Image.Image,
+        masks: Sequence[np.ndarray],
+    ) -> torch.Tensor:
+        """Embed each instance mask: zero background, crop to the mask extent, embed.
 
-# ---------------------------------------------------------------------------
-# OWLv2  (vision backbone, dim=1024)
-# ---------------------------------------------------------------------------
+        Args:
+            image: the full PIL image (or tile) the masks are defined on.
+            masks: sequence of (H, W) boolean arrays in that image's coords.
 
-class OWLv2Embedder(BaseEmbedder):
-    """
-    OWLv2 image embeddings using owlv2.vision_model.pooler_output (dim=1024).
-
-    We bypass class_predictor entirely — that head projects into a 512-dim
-    text-alignment space unsuitable for image-to-image cosine similarity.
-    Using pooler_output ensures supports and proposals are in the same space.
-    """
-
-    DEFAULT_MODEL_ID = "google/owlv2-large-patch14-ensemble"
-
-    def __init__(self, model_id: str = DEFAULT_MODEL_ID, batch_size: int = 16, **_):
-        from transformers import Owlv2Processor, Owlv2ForObjectDetection  # type: ignore
-        self.batch_size = batch_size
-        self._processor = Owlv2Processor.from_pretrained(model_id)
-        self._model = (
-            Owlv2ForObjectDetection
-            .from_pretrained(model_id, torch_dtype=TORCH_DTYPE)
-            .to(DEVICE)
-            .eval()
-        )
-        logger.info(f"Loaded {model_id} on {DEVICE} | vision backbone pooler_output dim=1024")
-
-    def embed(self, images: Union[Image.Image, List[Image.Image]]) -> torch.Tensor:
-        if not isinstance(images, list):
-            images = [images]
-        all_embs = []
-        with torch.no_grad():
-            for i in range(0, len(images), self.batch_size):
-                pv = self._processor(
-                    images=images[i: i + self.batch_size], return_tensors="pt"
-                )["pixel_values"].to(DEVICE, dtype=TORCH_DTYPE)
-                # Vision backbone only — pooler_output (B, 1024)
-                out = self._model.owlv2.vision_model(pixel_values=pv)
-                all_embs.append(out.pooler_output.float())  # keep on GPU
-        return self._normalise(torch.cat(all_embs, dim=0)).cpu()
+        Returns (N, D) CPU float32 L2-normed.
+        """
+        crops = [mask_extent_crop(image, np.asarray(m).astype(bool)) for m in masks]
+        return self.embed(crops)
 
 
 # ---------------------------------------------------------------------------
-# Factory
+# Factory (kept for API compatibility; DINOv3 is the only backend)
 # ---------------------------------------------------------------------------
 
-_BACKEND_MAP = {
-    "bioclip": BioCLIPEmbedder,
-    "dinov3":  DINOv3Embedder,
-    "owlv2":   OWLv2Embedder,
-}
+_BACKEND_MAP = {"dinov3": DINOv3Embedder}
 BACKENDS = list(_BACKEND_MAP.keys())
 
 
-def get_embedder(backend: str, **kwargs) -> BaseEmbedder:
-    """
-    Instantiate and return an embedder for the given backend.
-
-    Args:
-        backend : 'bioclip' | 'dinov3' | 'owlv2'
-        **kwargs: Forwarded to the embedder (e.g. model_id, batch_size).
-    """
+def get_embedder(backend: str = "dinov3", **kwargs) -> DINOv3Embedder:
+    """Instantiate the embedder for ``backend`` (only 'dinov3' is supported)."""
     key = backend.lower()
     if key not in _BACKEND_MAP:
-        raise ValueError(f"Unknown backend '{backend}'. Choose from: {BACKENDS}")
+        raise ValueError(f"Unknown backend '{backend}'. Only 'dinov3' is supported.")
     return _BACKEND_MAP[key](**kwargs)

@@ -1,38 +1,45 @@
 """
 object_classification/object_classification_utils.py
 
-Classification of proposals against class-support embeddings.
+Few-shot classification of SAM3 mask proposals against class-support embeddings.
 
-Two detection paths
--------------------
-cosine_similarity_detection (bioclip, dinov3, owlv2)
-    Pure embedding cosine similarity.  Works for any backend whose supports
-    and proposals live in the same vector space.
+Detection path (DINOv3 cosine)
+------------------------------
+Pure embedding cosine similarity between each proposal's DINOv3 vector and the
+per-class support vectors.  Supports and proposals share the same masked-crop
+DINOv3 space (see proposal/embedding_utils.py and class_support/), so cosine is
+valid.
 
-    OWLv2 now also goes through this path using vision_model.pooler_output
-    embeddings (dim=1024).  The old image_guided_object_detection path that
-    called model.class_predictor is removed — it required proposals to be
-    OWLv2 patch tokens (not pooler vectors) and caused the (52,768)x(1024,S)
-    dimension mismatch.
+Everything is mask-based: proposals carry per-instance masks (COCO RLE), the
+final de-duplication is mask-IoU NMS, and each emitted detection carries a
+``segmentation`` RLE — no bounding boxes anywhere.
 
 Dimension safety
 -----------------
-Support tensors are validated to be (N, D) on load.  If the npz was saved
-transposed as (D, N) (D > N), they are corrected automatically.
+Support tensors are validated to be (N, D).  A transposed (D, N) save (D > N) is
+auto-corrected.
 """
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import torch
 import torch.nn.functional as F
-from torchvision.ops import nms
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+try:
+    from proposal.mask_utils import mask_nms
+except ImportError:  # flat container layout (mask_utils.py alongside this file)
+    from mask_utils import mask_nms
 
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Core: cosine-similarity detection (all backends)
+# Core: cosine-similarity detection (DINOv3)
 # ──────────────────────────────────────────────────────────────────────────────
 
 def cosine_similarity_detection(
@@ -44,65 +51,62 @@ def cosine_similarity_detection(
     nms_iou_threshold: float = 0.5,
 ) -> list:
     """
-    Classify proposals against class supports via cosine similarity.
+    Classify mask proposals against class supports via cosine similarity.
 
     Args
     ----
     class_supports   : {class_name -> Tensor (N_s, D)}  L2-normed support embeddings
     object_features  : {"features": Tensor (N_p, D),
-                        "boxes":    Tensor (N_p, 4),
+                        "masks":    list[RLE] length N_p,
                         "scores":   Tensor (N_p,)}
-    device           : torch device string
-    objectness_threshold : minimum objectness score to keep a proposal
+    objectness_threshold : minimum SAM3 score to keep a proposal
     similarity_threshold : minimum cosine sim to emit a detection
-    nms_iou_threshold    : IoU threshold for final NMS
+    nms_iou_threshold    : mask-IoU threshold for final NMS
 
     Returns
     -------
-    list of {"bounding_box", "score", "class"} dicts after NMS
+    list of {"segmentation"(RLE), "score", "class"} dicts after mask-NMS
     """
     feats      = object_features.get("features")
-    boxes      = object_features.get("boxes")
+    masks      = object_features.get("masks")
     obj_scores = object_features.get("scores")
 
     if feats is None or feats.numel() == 0:
         return []
 
-    # Move to device once
     feats      = feats.to(device).float()
-    boxes      = boxes.to(device).float()
     obj_scores = obj_scores.to(device).float()
 
-    # Objectness pre-filter: keep top-100
+    # Objectness pre-filter, then keep top-100 by objectness.
     obj_mask = obj_scores > objectness_threshold
     if obj_mask.sum() == 0:
         return []
-    if obj_mask.sum() > 100:
-        _, top_idxs = obj_scores.topk(100)
-        feats      = feats[top_idxs]
-        boxes      = boxes[top_idxs]
-        obj_scores = obj_scores[top_idxs]
-    else:
-        feats      = feats[obj_mask]
-        boxes      = boxes[obj_mask]
-        obj_scores = obj_scores[obj_mask]
 
-    # L2-normalise proposals once for all classes
+    keep_idx = torch.nonzero(obj_mask, as_tuple=True)[0]
+    if keep_idx.numel() > 100:
+        _, top = obj_scores[keep_idx].topk(100)
+        keep_idx = keep_idx[top]
+
+    keep_list  = keep_idx.tolist()
+    feats      = feats[keep_idx]
+    masks      = [masks[i] for i in keep_list]
+    obj_scores = obj_scores[keep_idx]
+
+    # L2-normalise proposals once for all classes.
     feats_norm = F.normalize(feats, p=2, dim=-1)   # (M, D)
     feat_dim   = feats_norm.shape[-1]
 
     detections = []
 
     for class_name, support_embs in class_supports.items():
-        # Ensure (N_s, D)
         support_embs = support_embs.to(device).float()
         if support_embs.dim() == 1:
             support_embs = support_embs.unsqueeze(0)
 
-        # Auto-fix transposed (D, N_s) saves
+        # Auto-fix transposed (D, N_s) saves.
         if support_embs.shape[-1] != feat_dim:
             if support_embs.shape[0] == feat_dim:
-                print(f"  [WARN] '{class_name}' support transposed ({support_embs.shape}) — fixing.")
+                print(f"  [WARN] '{class_name}' support transposed ({tuple(support_embs.shape)}) — fixing.")
                 support_embs = support_embs.T
             else:
                 print(
@@ -113,14 +117,13 @@ def cosine_similarity_detection(
 
         support_norm = F.normalize(support_embs, p=2, dim=-1)  # (N_s, D)
 
-        # (M, D) @ (D, N_s) → (M, N_s) → max per proposal
         sim_matrix = feats_norm @ support_norm.T          # (M, N_s)
         sim_scores, _ = sim_matrix.max(dim=1)              # (M,)
 
         keep_mask = sim_scores > similarity_threshold
         for i in torch.nonzero(keep_mask, as_tuple=True)[0].tolist():
             detections.append({
-                "bounding_box": boxes[i].tolist(),
+                "segmentation": masks[i],
                 "score":        float(sim_scores[i]),
                 "class":        class_name,
             })
@@ -128,13 +131,13 @@ def cosine_similarity_detection(
     if not detections:
         return []
 
-    # Final NMS across all classes
-    boxes_t  = torch.tensor([d["bounding_box"] for d in detections],
-                             dtype=torch.float32, device=device)
-    scores_t = torch.tensor([d["score"] for d in detections],
-                             dtype=torch.float32, device=device)
-    keep_idxs = nms(boxes_t, scores_t, iou_threshold=nms_iou_threshold)
-    return [detections[i] for i in keep_idxs.tolist()]
+    # Final mask-NMS across all classes.
+    keep = mask_nms(
+        [d["segmentation"] for d in detections],
+        [d["score"] for d in detections],
+        iou_threshold=nms_iou_threshold,
+    )
+    return [detections[i] for i in keep]
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -146,22 +149,13 @@ def run_detection_for_backend(
     class_supports: dict,
     object_features: dict,
     device: str = DEVICE,
-    # legacy kwargs kept for API compat — no longer used
-    owlv2_model_bundle=None,
-    torch_data_type=None,
     objectness_threshold: float = 0.1,
     similarity_threshold: float = 0.2,
     nms_iou_threshold: float = 0.5,
 ) -> list:
-    """
-    Dispatch to cosine_similarity_detection for all backends.
-
-    All three backends (owlv2, bioclip, dinov3) now use pure cosine similarity
-    because all their embedders produce vectors in the same vision-backbone space.
-    The old image_guided_object_detection (class_predictor path) is removed.
-    """
-    if backend not in ("owlv2", "bioclip", "dinov3"):
-        raise ValueError(f"Unknown backend '{backend}'. Choose from: owlv2, bioclip, dinov3")
+    """Dispatch to cosine_similarity_detection (DINOv3 only)."""
+    if backend != "dinov3":
+        raise ValueError(f"Unknown backend '{backend}'. Only 'dinov3' is supported.")
 
     return cosine_similarity_detection(
         class_supports=class_supports,

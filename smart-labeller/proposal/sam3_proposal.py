@@ -1,36 +1,35 @@
 """
-proposal/sam3_proposal.py  –  SAM3-based proposal generation.
+proposal/sam3_proposal.py  –  SAM3-based mask proposal generation.
 
-Memory / speed optimisations
------------------------------
-- SAM3 model loaded once at module level.
-- GPU tensors stay on GPU until embedder.embed_boxes() finalises them.
-- Single .cpu().numpy() per tile after per-tile processing.
-- Embedder loaded once per generate_proposals_tiled call.
+SAM3 (text-prompted, concept-based) produces per-instance segmentation masks.
+This module keeps those masks (the old box pipeline discarded them), embeds each
+instance with DINOv3, places every mask into full-image coordinates, and dedupes
+overlapping instances from SAHI tile seams with mask-IoU NMS.
+
+Output per image
+----------------
+    {"features": ndarray (K, D)  float32,   # DINOv3, L2-normed
+     "masks":    list[RLE] length K,        # COCO RLE, full-image sized
+     "scores":   ndarray (K,)    float32}   # SAM3 instance scores
 
 Embedding space
 ---------------
-SAM3 provides boxes + scores only (no native feature embeddings).
-All embeddings are produced by the unified embedder from embedding_utils.py:
-  dinov3   → facebook/dinov2-large pooler_output  (dim=1024)
-  bioclip  → BioCLIP ViT-B/16                     (dim=512)
-  owlv2    → OWLv2 vision_model pooler_output     (dim=1024)
-
-These match the class-support embeddings from class_supports_utils.py exactly.
+Embeddings come from the unified DINOv3 embedder (embedding_utils.py) via
+``embed_masks`` — zero background, crop to the mask extent, DINOv3 pooler_output.
+This matches the class-support embeddings from class_supports_utils.py exactly.
 """
 
 from __future__ import annotations
 
+import collections
 import logging
 import sys
-import collections
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 import numpy as np
 import torch
-from torchvision.ops import nms as torchvision_nms
 from torch.utils.data import DataLoader
 from transformers import Sam3Model, Sam3Processor
 from PIL import Image
@@ -38,6 +37,7 @@ from PIL import Image
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from OverlappingTileDataset import OverlappingTileDataset
 from proposal.embedding_utils import get_embedder, DEVICE
+from proposal.mask_utils import encode_rle, mask_nms, paste_mask
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Model (loaded once)
@@ -58,8 +58,13 @@ def _infer_batch(
     tile_images: list,
     text_prompt: str,
     confidence_threshold: float,
+    mask_threshold: float = 0.5,
 ):
-    """Run SAM3 on a batch; return (boxes_list, scores_list) as CPU tensors."""
+    """Run SAM3 on a batch; return (masks_list, scores_list).
+
+    masks_list[i]  : list of (h, w) boolean np arrays (tile-local, per instance)
+    scores_list[i] : (M,) CPU float tensor
+    """
     inputs = sam3_processor(
         images=tile_images,
         text=[text_prompt] * len(tile_images),
@@ -72,35 +77,29 @@ def _infer_batch(
     batch_results = sam3_processor.post_process_instance_segmentation(
         outputs,
         threshold=confidence_threshold,
-        mask_threshold=confidence_threshold,
+        mask_threshold=mask_threshold,
         target_sizes=target_sizes,
     )
 
-    boxes_list  = []
+    masks_list  = []
     scores_list = []
     for result in batch_results:
-        if len(result.get("masks", [])) == 0:
-            boxes_list.append(torch.zeros((0, 4)))
+        masks = result.get("masks", [])
+        scores = result.get("scores", None)
+        if len(masks) == 0:
+            masks_list.append([])
             scores_list.append(torch.zeros((0,)))
-        else:
-            boxes_list.append(result["boxes"].float().cpu())
-            scores_list.append(result["scores"].float().cpu())
+            continue
+        tile_masks = []
+        for m in masks:
+            m = m.cpu().numpy() if hasattr(m, "cpu") else np.asarray(m)
+            tile_masks.append(m.astype(bool))
+        masks_list.append(tile_masks)
+        scores_list.append(
+            scores.float().cpu() if scores is not None else torch.ones(len(tile_masks))
+        )
 
-    return boxes_list, scores_list
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Global NMS
-# ──────────────────────────────────────────────────────────────────────────────
-
-def _global_nms(boxes, scores, feats, iou_threshold=0.5):
-    if len(boxes) == 0:
-        return None, None, None
-    b = torch.from_numpy(boxes).float()
-    s = torch.from_numpy(scores).float()
-    f = torch.from_numpy(feats).float()
-    keep = torchvision_nms(b, s, iou_threshold)
-    return f[keep].numpy(), b[keep].numpy(), s[keep].numpy()
+    return masks_list, scores_list
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -111,34 +110,38 @@ def generate_proposals_tiled(
     image_paths,
     text_prompt="visual",
     confidence_threshold=0.5,
-    is_sahi=False,
+    is_sahi=True,
     tile_size=960,
     overlap_ratio=0.2,
     batch_size=8,
     nms_iou_threshold=0.5,
     embedding_backend="dinov3",
+    mask_threshold=0.5,
     model_id=None,              # unused for SAM3; kept for API compat
 ):
     """
-    Generate bounding-box proposals using SAM3.
+    Generate mask proposals using SAM3.
 
     Returns
     -------
     dict: image_path (str) -> {"features": ndarray(K,D),
-                                "boxes":    ndarray(K,4),
+                                "masks":    list[RLE] length K,
                                 "scores":   ndarray(K,)}
           or None for images with no detections.
     """
     image_paths = [str(p) for p in image_paths]
 
-    # Load embedding model once
-    embedder_kwargs = {}
-    if model_id:
-        embedder_kwargs["model_id"] = model_id
-    embedder = get_embedder(embedding_backend, **embedder_kwargs)
+    # Load embedding model once (DINOv3 only).
+    embedder = get_embedder(embedding_backend)
     logger.info(f"Embedding backend: {embedding_backend}")
 
-    # Build dataset / loader
+    # Full-image size per image index, for placing tile masks into global coords.
+    full_hw = {}
+    for idx, p in enumerate(image_paths):
+        with Image.open(p) as im:
+            full_hw[idx] = (im.height, im.width)
+
+    # Build dataset / loader.
     if is_sahi:
         dataset = OverlappingTileDataset(image_paths, tile_size, overlap_ratio)
         loader  = DataLoader(dataset, batch_size=batch_size,
@@ -156,29 +159,33 @@ def generate_proposals_tiled(
         loader = [dataset[i: i + batch_size] for i in range(0, len(dataset), batch_size)]
         logger.info(f"Whole-image mode | images={len(dataset)}, batch_size={batch_size}")
 
-    accum = collections.defaultdict(lambda: {"boxes": [], "scores": [], "feats": []})
+    accum = collections.defaultdict(lambda: {"masks": [], "scores": [], "feats": []})
 
     for batch_idx, batch in enumerate(loader):
         tile_images = [item["image"]                     for item in batch]
         coords_list = [item["metadata"]["coords"]        for item in batch]
         img_idxs    = [int(item["metadata"]["img_idx"])  for item in batch]
 
-        boxes_list, scores_list = _infer_batch(tile_images, text_prompt, confidence_threshold)
+        masks_list, scores_list = _infer_batch(
+            tile_images, text_prompt, confidence_threshold, mask_threshold
+        )
 
-        for tile_img, tile_boxes, tile_scores, coords, img_idx in zip(
-            tile_images, boxes_list, scores_list, coords_list, img_idxs
+        for tile_img, tile_masks, tile_scores, coords, img_idx in zip(
+            tile_images, masks_list, scores_list, coords_list, img_idxs
         ):
-            if tile_boxes.numel() == 0:
+            if len(tile_masks) == 0:
                 continue
 
-            ox, oy      = float(coords[0]), float(coords[1])
-            offset      = torch.tensor([ox, oy, ox, oy])
-            global_boxes = (tile_boxes + offset).numpy()
+            ox, oy = int(coords[0]), int(coords[1])
 
-            local_boxes = tile_boxes.tolist()
-            feats_np    = embedder.embed_boxes(tile_img, local_boxes).numpy()
+            # Embed each instance from tile-local masks (object pixels only).
+            feats_np = embedder.embed_masks(tile_img, tile_masks).numpy()  # (M, D)
 
-            accum[img_idx]["boxes"].append(global_boxes)
+            # Place each tile mask onto a full-image canvas → COCO RLE.
+            H, W = full_hw[img_idx]
+            for m in tile_masks:
+                global_mask = paste_mask(m, (ox, oy), (H, W))
+                accum[img_idx]["masks"].append(encode_rle(global_mask))
             accum[img_idx]["scores"].append(tile_scores.numpy())
             accum[img_idx]["feats"].append(feats_np)
 
@@ -186,20 +193,20 @@ def generate_proposals_tiled(
 
     results = {p: None for p in image_paths}
     for img_idx, a in accum.items():
-        boxes_raw  = np.vstack(a["boxes"])
-        scores_raw = np.hstack(a["scores"])
-        feats_raw  = np.vstack(a["feats"])
+        rles       = a["masks"]                       # list[RLE]
+        scores_raw = np.hstack(a["scores"])           # (N,)
+        feats_raw  = np.vstack(a["feats"])            # (N, D)
 
-        feats_f, boxes_f, scores_f = _global_nms(
-            boxes_raw, scores_raw, feats_raw, nms_iou_threshold
-        )
-        if boxes_f is not None:
-            results[image_paths[img_idx]] = {
-                "features": feats_f,
-                "boxes":    boxes_f,
-                "scores":   scores_f,
-            }
-            logger.info(f"{Path(image_paths[img_idx]).name}: "
-                        f"{len(boxes_raw)} raw → {len(boxes_f)} after NMS")
+        keep = mask_nms(rles, scores_raw.tolist(), nms_iou_threshold)
+        if not keep:
+            continue
+
+        results[image_paths[img_idx]] = {
+            "features": feats_raw[keep],
+            "masks":    [rles[i] for i in keep],
+            "scores":   scores_raw[keep],
+        }
+        logger.info(f"{Path(image_paths[img_idx]).name}: "
+                    f"{len(rles)} raw → {len(keep)} after mask-NMS")
 
     return results

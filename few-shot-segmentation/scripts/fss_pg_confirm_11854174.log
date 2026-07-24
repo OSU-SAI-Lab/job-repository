@@ -1,15 +1,0 @@
-[job] node=c0818.ten.osc.edu
-NVIDIA H100, 95830 MiB
-Loading weights:   0%|          | 0/211 [00:00<?, ?it/s]Loading weights: 100%|██████████| 211/211 [00:00<00:00, 15881.81it/s]
-[transformers] You are using a model of type `sam3_video` to instantiate a model of type `sam3_tracker`. This may be expected if you are loading a checkpoint that shares a subset of the architecture (e.g., loading a `sam2_video` checkpoint into `Sam2Model`), but is otherwise not supported and can yield errors. Please verify that the checkpoint is compatible with the model you are instantiating.
-Loading weights:   0%|          | 0/685 [00:00<?, ?it/s]Loading weights: 100%|██████████| 685/685 [00:00<00:00, 10595.74it/s]
-[test] device=cuda amp_dtype=torch.bfloat16 mode=crop crop=1024 dinov3=base
-[support] id=0 April1/20250401_131221273_iOS.jpg fg=0.0398 anns=62 crop=[614, 257, 1638, 1281]
-[query] coco_q105: instances=109 score=0.902 IoU=0.441 P=0.582 R=0.644 bgFP=0.418
-[query] coco_q60: instances=141 score=0.902 IoU=0.725 P=0.962 R=0.747 bgFP=0.038
-[query] unseen_20250312_152606642_iOS: instances=30 score=0.844 (no GT)
-[query] unseen_20250312_152616028_iOS: instances=42 score=0.879 (no GT)
-
-[test] mean IoU over 2 GT queries = 0.5829
-[test] artefacts written to /fs/ess/PAS2699/kamath/fertilizer_data/fss_results/per_granule_confirm
-[job] DONE

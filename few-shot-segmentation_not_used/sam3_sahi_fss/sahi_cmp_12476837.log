@@ -1,0 +1,70 @@
+[job] node=c0820.ten.osc.edu
+NVIDIA H100
+Loading weights:   0%|          | 0/211 [00:00<?, ?it/s]Loading weights:  42%|████▏     | 89/211 [00:00<00:00, 714.14it/s]Loading weights:  93%|█████████▎| 197/211 [00:00<00:00, 789.28it/s]Loading weights: 100%|██████████| 211/211 [00:00<00:00, 830.72it/s]
+Loading weights:   0%|          | 0/1468 [00:00<?, ?it/s]Loading weights:   6%|▌         | 84/1468 [00:00<00:02, 552.79it/s]Loading weights:  15%|█▍        | 216/1468 [00:00<00:01, 844.43it/s]Loading weights:  26%|██▌       | 379/1468 [00:00<00:01, 777.99it/s]Loading weights:  31%|███▏      | 461/1468 [00:00<00:01, 614.73it/s]Loading weights:  36%|███▌      | 526/1468 [00:01<00:02, 334.10it/s]Loading weights:  39%|███▉      | 573/1468 [00:01<00:03, 243.75it/s]Loading weights:  41%|████▏     | 608/1468 [00:01<00:03, 242.51it/s]Loading weights:  44%|████▎     | 640/1468 [00:02<00:05, 154.27it/s]Loading weights:  45%|████▌     | 664/1468 [00:02<00:06, 127.65it/s]Loading weights:  47%|████▋     | 683/1468 [00:02<00:06, 115.31it/s]Loading weights:  48%|████▊     | 698/1468 [00:03<00:06, 110.55it/s]Loading weights:  49%|████▊     | 712/1468 [00:03<00:08, 93.53it/s] Loading weights:  49%|████▉     | 723/1468 [00:03<00:09, 75.51it/s]Loading weights:  50%|████▉     | 732/1468 [00:03<00:09, 77.46it/s]Loading weights:  50%|█████     | 741/1468 [00:03<00:10, 68.19it/s]Loading weights:  51%|█████     | 749/1468 [00:04<00:11, 62.18it/s]Loading weights:  52%|█████▏    | 766/1468 [00:04<00:10, 68.13it/s]Loading weights:  54%|█████▎    | 786/1468 [00:04<00:08, 79.15it/s]Loading weights:  54%|█████▍    | 795/1468 [00:04<00:08, 79.14it/s]Loading weights:  55%|█████▍    | 804/1468 [00:04<00:08, 77.36it/s]Loading weights:  55%|█████▌    | 812/1468 [00:04<00:10, 61.90it/s]Loading weights:  57%|█████▋    | 831/1468 [00:05<00:08, 79.61it/s]Loading weights:  58%|█████▊    | 848/1468 [00:05<00:08, 71.74it/s]Loading weights:  59%|█████▊    | 861/1468 [00:05<00:08, 69.32it/s]Loading weights:  60%|█████▉    | 875/1468 [00:05<00:07, 75.94it/s]Loading weights:  60%|██████    | 888/1468 [00:05<00:06, 82.97it/s]Loading weights:  61%|██████    | 897/1468 [00:05<00:07, 79.05it/s]Loading weights:  62%|██████▏   | 906/1468 [00:06<00:07, 76.67it/s]Loading weights:  62%|██████▏   | 914/1468 [00:06<00:08, 63.58it/s]Loading weights:  63%|██████▎   | 921/1468 [00:06<00:10, 52.11it/s]Loading weights:  63%|██████▎   | 927/1468 [00:06<00:12, 42.48it/s]Loading weights:  65%|██████▌   | 956/1468 [00:06<00:06, 84.56it/s]Loading weights:  66%|██████▌   | 967/1468 [00:06<00:05, 85.37it/s]Loading weights:  67%|██████▋   | 978/1468 [00:07<00:07, 64.43it/s]Loading weights:  68%|██████▊   | 991/1468 [00:07<00:08, 58.29it/s]Loading weights:  68%|██████▊   | 999/1468 [00:07<00:08, 53.02it/s]Loading weights:  69%|██████▊   | 1006/1468 [00:07<00:09, 48.55it/s]Loading weights:  69%|██████▉   | 1016/1468 [00:08<00:07, 57.34it/s]Loading weights:  70%|███████   | 1033/1468 [00:08<00:06, 72.29it/s]Loading weights:  71%|███████   | 1044/1468 [00:08<00:05, 72.95it/s]Loading weights:  72%|███████▏  | 1052/1468 [00:08<00:05, 72.84it/s]Loading weights:  72%|███████▏  | 1063/1468 [00:08<00:05, 76.97it/s]Loading weights:  73%|███████▎  | 1072/1468 [00:08<00:07, 51.42it/s]Loading weights:  74%|███████▍  | 1086/1468 [00:09<00:06, 63.48it/s]Loading weights:  75%|███████▍  | 1094/1468 [00:09<00:06, 60.95it/s]Loading weights:  75%|███████▌  | 1101/1468 [00:09<00:07, 49.02it/s]Loading weights:  76%|███████▋  | 1122/1468 [00:09<00:05, 66.13it/s]Loading weights:  78%|███████▊  | 1138/1468 [00:09<00:04, 77.46it/s]Loading weights:  78%|███████▊  | 1147/1468 [00:09<00:05, 63.87it/s]Loading weights:  79%|███████▉  | 1157/1468 [00:10<00:04, 64.69it/s]Loading weights:  79%|███████▉  | 1165/1468 [00:10<00:05, 59.88it/s]Loading weights:  81%|████████  | 1183/1468 [00:10<00:04, 62.28it/s]Loading weights:  82%|████████▏ | 1205/1468 [00:10<00:03, 73.03it/s]Loading weights:  83%|████████▎ | 1221/1468 [00:10<00:03, 77.86it/s]Loading weights:  84%|████████▍ | 1234/1468 [00:11<00:02, 85.24it/s]Loading weights:  85%|████████▍ | 1244/1468 [00:11<00:03, 57.90it/s]Loading weights:  85%|████████▌ | 1252/1468 [00:11<00:03, 58.04it/s]Loading weights:  86%|████████▌ | 1264/1468 [00:11<00:03, 67.75it/s]Loading weights:  87%|████████▋ | 1273/1468 [00:11<00:03, 51.88it/s]Loading weights:  87%|████████▋ | 1280/1468 [00:12<00:03, 53.80it/s]Loading weights:  88%|████████▊ | 1287/1468 [00:12<00:03, 55.57it/s]Loading weights:  88%|████████▊ | 1295/1468 [00:12<00:03, 45.88it/s]Loading weights:  90%|████████▉ | 1315/1468 [00:12<00:02, 69.45it/s]Loading weights:  90%|█████████ | 1324/1468 [00:12<00:02, 60.04it/s]Loading weights:  91%|█████████ | 1336/1468 [00:13<00:02, 58.96it/s]Loading weights:  92%|█████████▏| 1346/1468 [00:13<00:01, 64.41it/s]Loading weights:  93%|█████████▎| 1364/1468 [00:13<00:01, 70.84it/s]Loading weights:  93%|█████████▎| 1372/1468 [00:13<00:01, 63.91it/s]Loading weights:  94%|█████████▍| 1379/1468 [00:13<00:01, 63.24it/s]Loading weights:  94%|█████████▍| 1386/1468 [00:13<00:01, 59.32it/s]Loading weights:  95%|█████████▌| 1397/1468 [00:14<00:01, 53.53it/s]Loading weights:  96%|█████████▌| 1409/1468 [00:14<00:01, 50.92it/s]Loading weights:  97%|█████████▋| 1425/1468 [00:14<00:00, 62.59it/s]Loading weights:  98%|█████████▊| 1439/1468 [00:14<00:00, 65.41it/s]Loading weights:  99%|█████████▉| 1451/1468 [00:14<00:00, 74.77it/s]Loading weights: 100%|██████████| 1468/1468 [00:14<00:00, 99.37it/s]
+[run] device=cuda text='visual' slice=256 overlap=0.2 match=prototype queries=7
+    [sahi] slice 10/25 raw=43
+    [sahi] slice 20/25 raw=175
+    [sahi] 25 slices → 200 raw → 146 after NMS
+  [support] proposals=146 pos=78 neg=58
+[support] id=0 April1/20250401_131221273_iOS.jpg pos=78 neg=58
+    [sahi] slice 10/25 raw=56
+    [sahi] slice 20/25 raw=140
+    [sahi] 25 slices → 182 raw → 121 after NMS
+[transformers] The channel dimension is ambiguous. Got image shape torch.Size([3, 20, 3]). Assuming channels are the first dimension. Use the [input_data_format](https://huggingface.co/docs/transformers/main/internal/image_processing_utils#transformers.image_transforms.rescale.input_data_format) parameter to assign the channel dimension.
+[q15] (1/7) proposals=121 sim med=0.5956 iou@0.5=0.6882
+    [sahi] slice 10/25 raw=66
+    [sahi] slice 20/25 raw=136
+    [sahi] 25 slices → 184 raw → 145 after NMS
+[q30] (2/7) proposals=145 sim med=0.4777 iou@0.5=0.5951
+    [sahi] slice 10/25 raw=116
+    [sahi] slice 20/25 raw=241
+    [sahi] 25 slices → 293 raw → 207 after NMS
+[transformers] The channel dimension is ambiguous. Got image shape torch.Size([3, 34, 3]). Assuming channels are the first dimension. Use the [input_data_format](https://huggingface.co/docs/transformers/main/internal/image_processing_utils#transformers.image_transforms.rescale.input_data_format) parameter to assign the channel dimension.
+[transformers] The channel dimension is ambiguous. Got image shape torch.Size([3, 2, 3]). Assuming channels are the first dimension. Use the [input_data_format](https://huggingface.co/docs/transformers/main/internal/image_processing_utils#transformers.image_transforms.rescale.input_data_format) parameter to assign the channel dimension.
+[q45] (3/7) proposals=207 sim med=0.4702 iou@0.5=0.7199
+    [sahi] slice 10/25 raw=179
+    [sahi] slice 20/25 raw=404
+    [sahi] 25 slices → 435 raw → 338 after NMS
+[transformers] The channel dimension is ambiguous. Got image shape torch.Size([3, 15, 3]). Assuming channels are the first dimension. Use the [input_data_format](https://huggingface.co/docs/transformers/main/internal/image_processing_utils#transformers.image_transforms.rescale.input_data_format) parameter to assign the channel dimension.
+[q60] (4/7) proposals=338 sim med=0.4333 iou@0.5=0.6064
+    [sahi] slice 10/25 raw=196
+    [sahi] slice 20/25 raw=333
+    [sahi] 25 slices → 384 raw → 293 after NMS
+[transformers] The channel dimension is ambiguous. Got image shape torch.Size([3, 71, 3]). Assuming channels are the first dimension. Use the [input_data_format](https://huggingface.co/docs/transformers/main/internal/image_processing_utils#transformers.image_transforms.rescale.input_data_format) parameter to assign the channel dimension.
+[transformers] The channel dimension is ambiguous. Got image shape torch.Size([3, 8, 3]). Assuming channels are the first dimension. Use the [input_data_format](https://huggingface.co/docs/transformers/main/internal/image_processing_utils#transformers.image_transforms.rescale.input_data_format) parameter to assign the channel dimension.
+[q75] (5/7) proposals=293 sim med=0.4309 iou@0.5=0.6044
+    [sahi] slice 10/25 raw=122
+    [sahi] slice 20/25 raw=210
+    [sahi] 25 slices → 240 raw → 175 after NMS
+[transformers] The channel dimension is ambiguous. Got image shape torch.Size([3, 18, 3]). Assuming channels are the first dimension. Use the [input_data_format](https://huggingface.co/docs/transformers/main/internal/image_processing_utils#transformers.image_transforms.rescale.input_data_format) parameter to assign the channel dimension.
+[q90] (6/7) proposals=175 sim med=0.6328 iou@0.5=0.7219
+    [sahi] slice 10/25 raw=112
+    [sahi] slice 20/25 raw=292
+    [sahi] 25 slices → 367 raw → 291 after NMS
+[transformers] The channel dimension is ambiguous. Got image shape torch.Size([3, 24, 3]). Assuming channels are the first dimension. Use the [input_data_format](https://huggingface.co/docs/transformers/main/internal/image_processing_utils#transformers.image_transforms.rescale.input_data_format) parameter to assign the channel dimension.
+[transformers] The channel dimension is ambiguous. Got image shape torch.Size([3, 60, 3]). Assuming channels are the first dimension. Use the [input_data_format](https://huggingface.co/docs/transformers/main/internal/image_processing_utils#transformers.image_transforms.rescale.input_data_format) parameter to assign the channel dimension.
+[q105] (7/7) proposals=291 sim med=0.4429 iou@0.5=0.6268
+
+── SAHI SAM3 + DINOv3 prototype match: threshold sweep ──
+cos_thr       mIoU    prec  recall   keep%
+------------------------------------------
+-0.20        0.348   0.390   0.795    1.00
+-0.10        0.348   0.390   0.795    1.00
+0.00         0.348   0.390   0.795    1.00
+0.10         0.348   0.390   0.795    1.00
+0.20         0.354   0.397   0.795    0.98
+0.30         0.400   0.455   0.795    0.87
+0.35         0.451   0.519   0.795    0.77
+0.40         0.513   0.600   0.794    0.67
+0.45         0.588   0.705   0.792    0.55
+0.50         0.652   0.798   0.789    0.46
+0.55         0.684   0.853   0.784    0.40  <- best
+0.60         0.677   0.872   0.759    0.36
+0.65         0.598   0.892   0.650    0.28
+0.70         0.424   0.891   0.452    0.19
+
+BEST: cos_thr=0.55 mIoU=0.6844 prec=0.8532 recall=0.7843
+
+[run] wrote results + overlays to /users/PAS2699/naveenkamath/job-repository/few-shot-segmentation/sam3_sahi_fss/results
+[job] DONE

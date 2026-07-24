@@ -1,0 +1,15 @@
+[job] node=c0818.ten.osc.edu
+NVIDIA H100, 95830 MiB
+Loading weights:   0%|          | 0/211 [00:00<?, ?it/s]Loading weights: 100%|██████████| 211/211 [00:00<00:00, 6519.56it/s]
+[transformers] You are using a model of type `sam3_video` to instantiate a model of type `sam3_tracker`. This may be expected if you are loading a checkpoint that shares a subset of the architecture (e.g., loading a `sam2_video` checkpoint into `Sam2Model`), but is otherwise not supported and can yield errors. Please verify that the checkpoint is compatible with the model you are instantiating.
+Loading weights:   0%|          | 0/685 [00:00<?, ?it/s]Loading weights:  14%|█▍        | 98/685 [00:00<00:00, 965.66it/s]Loading weights:  35%|███▍      | 238/685 [00:00<00:00, 1207.94it/s]Loading weights:  53%|█████▎    | 360/685 [00:00<00:00, 1209.08it/s]Loading weights: 100%|██████████| 685/685 [00:00<00:00, 1814.18it/s]
+[test] device=cuda amp_dtype=torch.bfloat16 mode=crop crop=1024 dinov3=base
+[support] id=0 April1/20250401_131221273_iOS.jpg fg=0.0398 anns=62 crop=[614, 257, 1638, 1281]
+[query] coco_q105: instances=109 score=0.902 IoU=0.393 P=0.560 R=0.568 bgFP=0.440  prior_only[IoU0.21 P0.22 R0.84]  sam3[IoU0.44 P0.58 R0.64]  granule_sam3[IoU0.39 P0.56 R0.57]
+[query] coco_q60: instances=141 score=0.898 IoU=0.692 P=0.894 R=0.754 bgFP=0.106  prior_only[IoU0.42 P0.42 R1.00]  sam3[IoU0.73 P0.96 R0.75]  granule_sam3[IoU0.69 P0.89 R0.75]
+[query] unseen_20250312_152606642_iOS: instances=30 score=0.844 (no GT)
+[query] unseen_20250312_152616028_iOS: instances=42 score=0.879 (no GT)
+
+[test] mean IoU over 2 GT queries = 0.5423
+[test] artefacts written to /fs/ess/PAS2699/kamath/fertilizer_data/fss_results/granule_fix
+[job] DONE

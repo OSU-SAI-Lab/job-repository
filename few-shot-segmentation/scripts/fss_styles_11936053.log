@@ -1,32 +1,0 @@
-[job] node=c0806.ten.osc.edu
-NVIDIA H100
-Loading weights:   0%|          | 0/211 [00:00<?, ?it/s]Loading weights: 100%|██████████| 211/211 [00:00<00:00, 6338.85it/s]
-[transformers] You are using a model of type `sam3_video` to instantiate a model of type `sam3_tracker`. This may be expected if you are loading a checkpoint that shares a subset of the architecture (e.g., loading a `sam2_video` checkpoint into `Sam2Model`), but is otherwise not supported and can yield errors. Please verify that the checkpoint is compatible with the model you are instantiating.
-Loading weights:   0%|          | 0/685 [00:00<?, ?it/s]Loading weights:  20%|█▉        | 134/685 [00:00<00:00, 1263.56it/s]Loading weights:  42%|████▏     | 289/685 [00:00<00:00, 1418.11it/s]Loading weights:  64%|██████▍   | 437/685 [00:00<00:00, 1432.86it/s]Loading weights: 100%|██████████| 685/685 [00:00<00:00, 1797.41it/s]
-[styles] device=cuda amp=torch.bfloat16 prior_threshold=0.4 seed_source=brightness
-[style] boxes              clumped=0.818  scattered=0.272  all=0.350  per={60: 0.82, 15: 0.25, 30: 0.13, 45: 0.3, 75: 0.34, 90: 0.11, 105: 0.5}
-[style] per_granule_box    clumped=0.745  scattered=0.629  all=0.645  per={60: 0.75, 15: 0.37, 30: 0.64, 45: 0.71, 75: 0.71, 90: 0.74, 105: 0.61}
-[style] per_granule_point  clumped=0.699  scattered=0.492  all=0.521  per={60: 0.7, 15: 0.04, 30: 0.58, 45: 0.72, 75: 0.74, 90: 0.75, 105: 0.12}
-[style] component_box      clumped=0.822  scattered=0.288  all=0.364  per={60: 0.82, 15: 0.26, 30: 0.12, 45: 0.31, 75: 0.33, 90: 0.22, 105: 0.49}
-[style] component_point    clumped=0.013  scattered=0.046  all=0.042  per={60: 0.01, 15: 0.03, 30: 0.02, 45: 0.02, 75: 0.13, 90: 0.01, 105: 0.06}
-[style] router             clumped=0.822  scattered=0.401  all=0.461  per={60: 0.82, 15: 0.26, 30: 0.52, 45: 0.34, 75: 0.4, 90: 0.36, 105: 0.52}
-
-── prompting-style comparison (mean IoU) ──
-style                clumped   scattered       all
---------------------------------------------------
-boxes                  0.818       0.272     0.350
-per_granule_box        0.745       0.629     0.645
-per_granule_point      0.699       0.492     0.521
-component_box          0.822       0.288     0.364
-component_point        0.013       0.046     0.042
-router                 0.822       0.401     0.461
-
-BEST per regime:
-  clumped   → component_box  (IoU 0.822)
-  scattered → per_granule_box  (IoU 0.629)
-  overall   → per_granule_box  (IoU 0.645)
-
-  ⇒ regimes prefer DIFFERENT styles (component_box vs per_granule_box) → a per-region router is theoretically justified.
-
-[styles] wrote results + overlays to /fs/ess/PAS2699/kamath/fertilizer_data/fss_results/prompt_styles
-[job] DONE

@@ -1,0 +1,104 @@
+{
+  "annotations": [
+    {
+      "image_path": "20250401_142631346_iOS.jpg",
+      "class": "fertilizers",
+      "bounding_box": [
+        1021,
+        734,
+        1043,
+        765
+      ]
+    },
+    {
+      "image_path": "20250401_142631346_iOS.jpg",
+      "class": "fertilizers",
+      "bounding_box": [
+        680,
+        966,
+        708,
+        1000
+      ]
+    },
+    {
+      "image_path": "20250401_142631346_iOS.jpg",
+      "class": "fertilizers",
+      "bounding_box": [
+        1386,
+        851,
+        1421,
+        880
+      ]
+    },
+    {
+      "image_path": "20250401_142631346_iOS.jpg",
+      "class": "fertilizers",
+      "bounding_box": [
+        1263,
+        1168,
+        1299,
+        1195
+      ]
+    },
+    {
+      "image_path": "20250401_142631346_iOS.jpg",
+      "class": "fertilizers",
+      "bounding_box": [
+        1469,
+        992,
+        1507,
+        1016
+      ]
+    },
+    {
+      "image_path": "20250401_142631346_iOS.jpg",
+      "class": "fertilizers",
+      "bounding_box": [
+        1468,
+        1031,
+        1496,
+        1058
+      ]
+    },
+    {
+      "image_path": "20250401_142631346_iOS.jpg",
+      "class": "fertilizers",
+      "bounding_box": [
+        1761,
+        1139,
+        1790,
+        1168
+      ]
+    },
+    {
+      "image_path": "20250401_142631346_iOS.jpg",
+      "class": "fertilizers",
+      "bounding_box": [
+        1400,
+        1150,
+        1427,
+        1178
+      ]
+    },
+    {
+      "image_path": "20250401_142631346_iOS.jpg",
+      "class": "fertilizers",
+      "bounding_box": [
+        1357,
+        1162,
+        1385,
+        1199
+      ]
+    },
+    {
+      "image_path": "20250401_142631346_iOS.jpg",
+      "class": "fertilizers",
+      "bounding_box": [
+        1381,
+        1158,
+        1425,
+        1200
+      ]
+    }
+  ]
+}

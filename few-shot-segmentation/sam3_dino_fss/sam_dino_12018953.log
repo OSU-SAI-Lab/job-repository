@@ -1,34 +1,0 @@
-[job] node=c0807.ten.osc.edu
-NVIDIA H100
-Loading weights:   0%|          | 0/211 [00:00<?, ?it/s]Loading weights: 100%|██████████| 211/211 [00:00<00:00, 15553.30it/s]
-Loading weights:   0%|          | 0/1468 [00:00<?, ?it/s]Loading weights: 100%|██████████| 1468/1468 [00:00<00:00, 21031.48it/s]
-[run] device=cuda proposal_text='seed'
-[support] id=0 April1/20250401_131221273_iOS.jpg instances=32
-[q15] proposals=62 cosine min=0.423 med=0.663 max=0.774
-[q30] proposals=36 cosine min=0.544 med=0.795 max=0.877
-[q45] proposals=69 cosine min=0.577 med=0.759 max=0.869
-[q60] proposals=89 cosine min=0.445 med=0.682 max=0.766
-[q75] proposals=56 cosine min=0.400 med=0.727 max=0.824
-[q90] proposals=84 cosine min=0.556 med=0.728 max=0.837
-[q105] proposals=91 cosine min=0.533 med=0.742 max=0.818
-
-── SAM3+DINOv3 cosine-match: threshold sweep (mean over GT queries) ──
-cos_thr       mIoU    prec  recall   keep%
-------------------------------------------
-0.20         0.741   0.859   0.848    1.00  <- best
-0.30         0.741   0.859   0.848    1.00
-0.35         0.741   0.859   0.848    1.00
-0.40         0.741   0.859   0.848    1.00
-0.45         0.741   0.863   0.846    0.99
-0.50         0.737   0.862   0.841    0.99
-0.55         0.734   0.863   0.836    0.97
-0.60         0.719   0.865   0.815    0.93
-0.65         0.664   0.871   0.742    0.82
-0.70         0.539   0.865   0.596    0.65
-
-BEST: cos_thr=0.20 mIoU=0.7414 prec=0.8587 recall=0.8485
-[unseen] 20250312_152606642_iOS.jpg: proposals=23 kept=23
-[unseen] 20250312_152616028_iOS.jpg: proposals=26 kept=26
-
-[run] wrote results + overlays to /users/PAS2699/naveenkamath/job-repository/few-shot-segmentation/sam3_dino_fss/results
-[job] DONE

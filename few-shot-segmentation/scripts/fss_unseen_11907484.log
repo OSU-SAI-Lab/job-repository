@@ -1,18 +1,0 @@
-[job] node=c0815.ten.osc.edu
-NVIDIA H100
-Loading weights:   0%|          | 0/211 [00:00<?, ?it/s]Loading weights: 100%|██████████| 211/211 [00:00<00:00, 6090.25it/s]
-[transformers] You are using a model of type `sam3_video` to instantiate a model of type `sam3_tracker`. This may be expected if you are loading a checkpoint that shares a subset of the architecture (e.g., loading a `sam2_video` checkpoint into `Sam2Model`), but is otherwise not supported and can yield errors. Please verify that the checkpoint is compatible with the model you are instantiating.
-Loading weights:   0%|          | 0/685 [00:00<?, ?it/s]Loading weights:  14%|█▍        | 95/685 [00:00<00:00, 942.86it/s]Loading weights:  31%|███       | 212/685 [00:00<00:00, 1051.77it/s]Loading weights:  46%|████▋     | 318/685 [00:00<00:00, 898.85it/s] Loading weights:  60%|█████▉    | 410/685 [00:00<00:00, 884.13it/s]Loading weights:  73%|███████▎  | 500/685 [00:00<00:00, 878.61it/s]Loading weights: 100%|██████████| 685/685 [00:00<00:00, 1189.78it/s]
-[unseen] device=cuda amp=torch.bfloat16
-[unseen] CONFIG FROM config.py → threshold=0.4 seed_z=1.5 seed_source=brightness min_distance=5 box_scale=1.0 neg_points=2 neg_threshold=0.4
-[support] id=0 April1/20250401_131221273_iOS.jpg anns=62
-[query] unseen_March13_20250312_152606642_iOS: instances=89 fg_fraction=0.0124 best_score=0.871
-[query] unseen_March13_20250312_152616028_iOS: instances=168 fg_fraction=0.0181 best_score=0.910
-[query] unseen_March13_20250312_152630677_iOS: instances=152 fg_fraction=0.0183 best_score=0.898
-[query] unseen_March13_20250312_152650583_iOS: instances=43 fg_fraction=0.0076 best_score=0.891
-[query] unseen_March14_20250314_132532888_iOS: instances=124 fg_fraction=0.0210 best_score=0.906
-[query] unseen_March14_20250314_132542598_iOS: instances=178 fg_fraction=0.0242 best_score=0.918
-[query] unseen_March14_20250314_132545424_iOS: instances=175 fg_fraction=0.0249 best_score=0.914
-[query] unseen_March14_20250314_132548856_iOS: instances=133 fg_fraction=0.0210 best_score=0.914
-[unseen] wrote 8 unseen results (overlay+debug+mask) to /users/PAS2699/naveenkamath/job-repository/few-shot-segmentation/fss/results
-[job] DONE

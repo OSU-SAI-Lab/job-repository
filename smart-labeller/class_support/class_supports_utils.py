@@ -1,115 +1,60 @@
 """
 class_support/class_supports_utils.py
 
-Extracts class-support embeddings from ground-truth annotated crops.
+Extracts class-support embeddings from ground-truth annotations.
 
-Embedding space contract
-------------------------
-Each backend uses EXACTLY the same model and the same extraction path as the
-corresponding embedder in proposal/embedding_utils.py.  This guarantees that
-class-support vectors and proposal vectors live in the same space so that
-cosine similarity at classification time is valid.
+Segmentation pipeline (SAM3 + DINOv3)
+------------------------------------
+Ground-truth annotations carry a ``bounding_box`` only.  Since the whole pipeline
+is mask-based, each GT box is first turned into a MASK by prompting the SAM3
+Tracker with that box; the box is used purely as a SAM3 input prompt, never as a
+pipeline box.  The resulting mask is then embedded the SAME way proposals are:
 
-  bioclip → BioCLIP BaseClassifier.create_image_features  (dim=512)
-  dinov3  → AutoModel.pooler_output                        (dim=1024)
-  owlv2   → vision_model.pooler_output of the BEST-MATCHING anchor
-             inside a centered crop around the GT box     (dim=1024)
+  box → SAM3 Tracker (box prompt) → mask
+      → mask_extent_crop (zero background, crop to the mask's tight extent)
+      → DINOv3 pooler_output (dim=1024) → L2-normalise
 
-OWLv2 strategy (centered-crop + best-patch)
---------------------------------------------
-A raw GT-box crop fed straight into the vision backbone produces a poor support
-embedding because OWLv2 was trained to embed full scenes, not tight crops.
-Instead we:
-  1. Build a centered crop of `crop_size` pixels around the GT box centre.
-  2. Run image_embedder to get patch-level feature maps.
-  3. Run box_predictor to get per-anchor boxes.
-  4. Pick the anchor whose predicted box has the highest IoU with the GT box.
-  5. Extract that anchor's vision_model pooler-equivalent embedding by running
-     vision_model on the centered crop and using the patch token at the anchor's
-     spatial position (mean-pooled over the anchor's grid region).
+This shares the exact embedding path with proposal/embedding_utils.py
+(DINOv3Embedder.embed_masks), so class-support vectors and proposal vectors live
+in the same space and cosine similarity at classification time is valid.
 
-     For simplicity and consistency with OWLv2Embedder (which uses pooler_output),
-     we run vision_model on the centered crop directly and return pooler_output.
-     This gives a single (1024,) vector that is in the SAME space as the proposal
-     embeddings produced by OWLv2Embedder.embed_boxes() in embedding_utils.py.
-
-  The IoU-based anchor selection is still used to record the best_box and best_iou
-  for the crop-size optimisation loop in generate_class_supports_main.py — it does
-  NOT change which embedding is returned (we always return the pooler of the crop).
+If an annotation already carries a ``segmentation`` (COCO RLE), that mask is used
+directly and SAM3 is skipped for it.
 """
 
 from __future__ import annotations
 
 import os
-from typing import List, Tuple, Dict, Optional
+import sys
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
+import numpy as np
 import torch
 import torch.nn.functional as F
-import numpy as np
-from scipy.special import expit
 from PIL import Image
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+try:
+    from proposal.mask_utils import mask_extent_crop, decode_rle, encode_rle
+except ImportError:  # flat container layout (mask_utils.py alongside this file)
+    from mask_utils import mask_extent_crop, decode_rle, encode_rle
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Constants
 # ──────────────────────────────────────────────────────────────────────────────
 
-DEFAULT_OWLV2_MODEL  = "google/owlv2-large-patch14-ensemble"
 DEFAULT_DINOV3_MODEL = "facebook/dinov3-vitl16-pretrain-lvd1689m"
+DEFAULT_SAM3_MODEL   = "facebook/sam3"
 
 DEVICE      = "cuda" if torch.cuda.is_available() else "cpu"
 TORCH_DTYPE = torch.float16 if torch.cuda.is_available() else torch.float32
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# IoU utility (used by crop-size optimisation loop in main)
-# ──────────────────────────────────────────────────────────────────────────────
-
-def calculate_change_in_iou(
-    patch_size: int,
-    generated_boxes: list,
-    iou_map: dict,
-) -> Tuple[bool, dict]:
-    """Track average IoU across crop-size iterations (OWLv2 legacy loop)."""
-    avg_iou = 0.0
-    if generated_boxes:
-        avg_iou = sum(b.get("iou", 0.0) for b in generated_boxes) / len(generated_boxes)
-
-    sorted_sizes = sorted(iou_map, reverse=True)
-    prev_best = iou_map.get(sorted_sizes[-1], 0.0) if sorted_sizes else 0.0
-    next_iter = prev_best == 0 or (
-        avg_iou > prev_best and abs(avg_iou - prev_best) / prev_best > 0.1
-    )
-    iou_map[patch_size] = round(avg_iou, 3)
-    return next_iter, iou_map
-
-
-# ──────────────────────────────────────────────────────────────────────────────
 # Model loaders
 # ──────────────────────────────────────────────────────────────────────────────
-
-def load_owlv2_model(model_name: str = DEFAULT_OWLV2_MODEL):
-    """Load OWLv2ForObjectDetection + processor."""
-    from transformers import Owlv2Processor, Owlv2ForObjectDetection  # type: ignore
-    processor = Owlv2Processor.from_pretrained(model_name)
-    model = (
-        Owlv2ForObjectDetection
-        .from_pretrained(model_name, torch_dtype=TORCH_DTYPE)
-        .to(DEVICE)
-        .eval()
-    )
-    print(f"[OWLv2] Loaded {model_name}")
-    return processor, model
-
-
-def load_bioclip_model():
-    """Load BioCLIP BaseClassifier."""
-    from bioclip.predict import BaseClassifier  # type: ignore
-    clf = BaseClassifier(device=DEVICE)
-    clf.model.eval()
-    print("[BioCLIP] Model loaded")
-    return clf
-
 
 def load_dinov3_model(model_name: str = DEFAULT_DINOV3_MODEL):
     """Load DINOv3 AutoModel + processor."""
@@ -120,190 +65,81 @@ def load_dinov3_model(model_name: str = DEFAULT_DINOV3_MODEL):
     return processor, model
 
 
-def load_embedding_model(backend: str, device=None, torch_dtype=None, model_name: str = None):
-    """
-    Factory: return the model bundle for a given backend.
+def load_sam3_tracker(model_name: str = DEFAULT_SAM3_MODEL):
+    """Load the SAM3 Tracker model + processor (for box-prompted masks)."""
+    from transformers import Sam3TrackerModel, Sam3TrackerProcessor  # type: ignore
+    processor = Sam3TrackerProcessor.from_pretrained(model_name)
+    model = Sam3TrackerModel.from_pretrained(model_name).to(DEVICE).eval()
+    print(f"[SAM3 Tracker] Loaded {model_name}")
+    return processor, model
 
-    Returns
-    -------
-    owlv2   → (Owlv2Processor, Owlv2ForObjectDetection)
-    bioclip → BaseClassifier
-    dinov3  → (AutoImageProcessor, AutoModel)
-    """
-    if backend == "owlv2":
-        return load_owlv2_model(model_name or DEFAULT_OWLV2_MODEL)
-    elif backend == "bioclip":
-        return load_bioclip_model()
-    elif backend == "dinov3":
-        return load_dinov3_model(model_name or DEFAULT_DINOV3_MODEL)
-    else:
-        raise ValueError(f"Unknown backend '{backend}'. Choose from: owlv2, bioclip, dinov3")
+
+def load_embedding_model(backend: str = "dinov3", device=None, torch_dtype=None,
+                         model_name: str = None):
+    """Factory kept for API compatibility. Only 'dinov3' is supported."""
+    if backend != "dinov3":
+        raise ValueError(f"Unknown backend '{backend}'. Only 'dinov3' is supported.")
+    return load_dinov3_model(model_name or DEFAULT_DINOV3_MODEL)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# OWLv2: centered-crop + best-anchor selection
-# ──────────────────────────────────────────────────────────────────────────────
-
-def _compute_iou(boxA, boxB) -> float:
-    """Compute IoU between two [x1,y1,x2,y2] boxes."""
-    xa1, ya1, xa2, ya2 = map(float, boxA)
-    xb1, yb1, xb2, yb2 = map(float, boxB)
-    xi1, yi1 = max(xa1, xb1), max(ya1, yb1)
-    xi2, yi2 = min(xa2, xb2), min(ya2, yb2)
-    inter = max(0.0, xi2 - xi1) * max(0.0, yi2 - yi1)
-    union = (xa2 - xa1) * (ya2 - ya1) + (xb2 - xb1) * (yb2 - yb1) - inter
-    return inter / union if union > 0 else 0.0
-
-
-def get_best_patch_embedding(
-    crop: Image.Image,
-    processor,
-    model,
-    ref_box_in_crop: Tuple[float, float, float, float],
-) -> Tuple[np.ndarray, Tuple[float, float, float, float], float]:
-    """
-    Find the OWLv2 anchor inside `crop` that best matches `ref_box_in_crop`
-    (GT box expressed in crop-local pixel coordinates), then return the
-    vision_model.pooler_output of the crop as the embedding.
-
-    Why pooler_output instead of the per-anchor class_predictor embedding?
-    -----------------------------------------------------------------------
-    The class_predictor projects patch tokens into a 512-dim text-alignment
-    space.  Proposal embeddings are produced via vision_model.pooler_output
-    (1024-dim).  Using the same path here keeps supports and proposals in the
-    same vector space so cosine similarity is meaningful.
-
-    The anchor selection (objectness + IoU ranking) is kept because it:
-      a) records the best predicted box for the IoU optimisation loop in main, and
-      b) confirms the crop actually contains the object before we commit the
-         pooler embedding as a support vector.
-
-    Returns
-    -------
-    emb        : np.ndarray (1024,)  — L2-normalised pooler embedding of the crop
-    best_box   : (x1,y1,x2,y2) in crop-local pixels — highest-IoU anchor box
-    best_iou   : float
-    """
-    pv = processor(images=[crop], return_tensors="pt")["pixel_values"].to(DEVICE, dtype=TORCH_DTYPE)
-
-    with torch.no_grad():
-        # Anchor-level inference (used only for best-box selection)
-        fmap = model.image_embedder(pv)[0]              # (1, Hf, Wf, C_hidden)
-        B, Hf, Wf, C_h = fmap.shape
-        feats = fmap.reshape(B, Hf * Wf, C_h)           # (1, P, C_hidden)
-        obj_logits = model.objectness_predictor(feats)[0]   # (P,)
-        boxes_norm = model.box_predictor(feats, feature_map=fmap)[0]  # (P, 4) cxcywh norm
-
-        # Vision-backbone pooler (for the actual embedding — same as OWLv2Embedder)
-        pool_out = model.owlv2.vision_model(pixel_values=pv).pooler_output[0].float()  # (1024,)
-
-    # Convert anchors to pixel coords for IoU ranking
-    obj_scores = expit(obj_logits.cpu().float().numpy())          # (P,)
-    boxes_norm_np = boxes_norm.cpu().float().numpy()              # (P, 4) cxcywh norm
-    W_crop, H_crop = crop.width, crop.height
-    padded = max(H_crop, W_crop)
-
-    proposals = []
-    for (cx, cy, bw, bh), score in zip(boxes_norm_np, obj_scores):
-        xA = (cx - bw / 2) * padded
-        yA = (cy - bh / 2) * padded
-        xB = (cx + bw / 2) * padded
-        yB = (cy + bh / 2) * padded
-        proposals.append((xA, yA, xB, yB, score))
-
-    ref = tuple(map(float, ref_box_in_crop))
-    ious = np.array([_compute_iou(ref, p[:4]) for p in proposals])
-    best_idx = int(np.argmax(ious))
-    best_box = tuple(float(v) for v in proposals[best_idx][:4])
-    best_iou = float(ious[best_idx])
-
-    print(f"    best_iou={best_iou:.3f}")
-
-    # Return pooler embedding (correct space) + best box metadata
-    emb_np = F.normalize(pool_out, dim=-1).cpu().numpy()   # (1024,)
-    return emb_np, best_box, best_iou
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Per-backend single-crop embedding extractors
-# Each returns a 1-D CPU float32 tensor.
+# SAM3 box-prompt → mask
 # ──────────────────────────────────────────────────────────────────────────────
 
 @torch.no_grad()
-def _embed_owlv2_centered(
+def segment_box(
     img: Image.Image,
     bbox: List[float],
+    tracker_bundle,
+) -> Optional[np.ndarray]:
+    """Prompt the SAM3 Tracker with ``bbox`` and return the best (H, W) bool mask.
+
+    Returns None if SAM3 produces no foreground pixels.
+    """
+    processor, model = tracker_bundle
+    W, H = img.size
+
+    image_inputs = processor(images=img, return_tensors="pt").to(DEVICE)
+    image_embeddings = model.get_image_embeddings(image_inputs["pixel_values"])
+
+    x1, y1, x2, y2 = [float(v) for v in bbox]
+    prompt_inputs = processor(
+        input_boxes=[[[x1, y1, x2, y2]]],
+        return_tensors="pt",
+        original_sizes=[(H, W)],
+    ).to(DEVICE)
+
+    outputs = model(**prompt_inputs, image_embeddings=image_embeddings)
+
+    masks = processor.post_process_masks(
+        outputs.pred_masks.cpu(),
+        prompt_inputs["original_sizes"].cpu(),
+    )[0]
+    scores = outputs.iou_scores.cpu()[0, 0]
+    best_idx = int(torch.argmax(scores).item())
+    best_mask = masks[0][best_idx].numpy() > 0
+
+    if best_mask.sum() == 0:
+        return None
+    return best_mask.astype(bool)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# DINOv3 embedding of a masked region
+# ──────────────────────────────────────────────────────────────────────────────
+
+@torch.no_grad()
+def _embed_dinov3_masked(
+    img: Image.Image,
+    mask_bool: np.ndarray,
     processor,
     model,
-    crop_size: int,
-) -> Tuple[torch.Tensor, dict]:
+) -> torch.Tensor:
+    """Embed the masked object region with DINOv3 (pooler_output), L2-normalised.
+
+    Uses mask_extent_crop so the framing matches DINOv3Embedder.embed_masks.
     """
-    Build a centered crop around the GT bbox, run get_best_patch_embedding,
-    and return the pooler embedding + a generated_box annotation dict.
-    """
-    W, H = img.size
-    x1_gt = max(0, min(int(bbox[0]), W - 1))
-    y1_gt = max(0, min(int(bbox[1]), H - 1))
-    x2_gt = max(0, min(int(bbox[2]), W))
-    y2_gt = max(0, min(int(bbox[3]), H))
-
-    cx_gt = (x1_gt + x2_gt) / 2.0
-    cy_gt = (y1_gt + y2_gt) / 2.0
-    half  = crop_size / 2.0
-
-    crop_x1 = max(0, int(cx_gt - half))
-    crop_y1 = max(0, int(cy_gt - half))
-    crop_x2 = min(W, int(cx_gt + half))
-    crop_y2 = min(H, int(cy_gt + half))
-
-    # Snap to edge if crop is smaller than requested size
-    if crop_x2 - crop_x1 < crop_size:
-        crop_x1 = 0 if crop_x1 == 0 else max(0, crop_x2 - crop_size)
-        crop_x2 = min(W, crop_x1 + crop_size)
-    if crop_y2 - crop_y1 < crop_size:
-        crop_y1 = 0 if crop_y1 == 0 else max(0, crop_y2 - crop_size)
-        crop_y2 = min(H, crop_y1 + crop_size)
-
-    centered_crop = img.crop((crop_x1, crop_y1, crop_x2, crop_y2))
-
-    # GT box in crop-local coords
-    ref_x1 = max(0, x1_gt - crop_x1)
-    ref_y1 = max(0, y1_gt - crop_y1)
-    ref_x2 = min(centered_crop.width,  x2_gt - crop_x1)
-    ref_y2 = min(centered_crop.height, y2_gt - crop_y1)
-
-    emb_np, best_box, best_iou = get_best_patch_embedding(
-        centered_crop, processor, model, (ref_x1, ref_y1, ref_x2, ref_y2)
-    )
-    emb = torch.from_numpy(emb_np)   # (1024,) CPU float32, already normalised
-
-    gen_box = {
-        "bounding_box": [
-            float(best_box[0]) + crop_x1, float(best_box[1]) + crop_y1,
-            float(best_box[2]) + crop_x1, float(best_box[3]) + crop_y1,
-        ],
-        "iou": float(best_iou),
-    }
-    return emb, gen_box
-
-
-@torch.no_grad()
-def _embed_bioclip(crop: Image.Image, clf) -> torch.Tensor:
-    """
-    Embed a single GT crop with BioCLIP (dim=512).
-    Matches BioCLIPEmbedder in embedding_utils.py.
-    """
-    clf.model.eval()
-    emb = clf.create_image_features([crop], normalize=False)  # (1, 512)
-    return F.normalize(emb[0].float(), dim=-1).cpu()
-
-
-@torch.no_grad()
-def _embed_dinov3(crop: Image.Image, processor, model) -> torch.Tensor:
-    """
-    Embed a single GT crop with DINOv3 (pooler_output).
-    Matches DINOv3Embedder in embedding_utils.py.
-    """
+    crop = mask_extent_crop(img, mask_bool)
     pv = processor(images=[crop], return_tensors="pt")["pixel_values"].to(DEVICE)
     out = model(pixel_values=pv)
     emb = out.pooler_output[0].float()          # (D,) on GPU
@@ -316,41 +152,32 @@ def _embed_dinov3(crop: Image.Image, processor, model) -> torch.Tensor:
 
 def extract_support_embeddings(
     support_examples: List[dict],
-    embedding_backend: str,
-    model_bundle,
-    device: str,                # kept for API compat; we always use module-level DEVICE
+    embedding_backend: str,           # kept for API compat; must be 'dinov3'
+    model_bundle,                     # (dinov3_processor, dinov3_model)
+    device: str,                      # kept for API compat; module-level DEVICE is used
     src_path: str = None,
-    crop_size: int = 1024,      # used only by OWLv2 centered-crop path (legacy)
+    tracker_bundle=None,              # (sam3_tracker_processor, sam3_tracker_model)
 ) -> Tuple[Dict[str, torch.Tensor], list]:
     """
-    Extract class-support embeddings from GT-annotated crops.
+    Extract class-support embeddings from GT annotations.
 
-    OWLv2  → centered crop of `crop_size` around GT box centre → best-anchor
-             selection via IoU → vision_model.pooler_output (1024-dim).
-             generated_boxes entries include an "iou" field for the crop-size
-             optimisation loop in generate_class_supports_main.py.
-
-    BioCLIP → exact GT box crop → create_image_features (512-dim).
-    DINOv3  → exact GT box crop → AutoModel.pooler_output (1024-dim).
-
-    Args
-    ----
-    support_examples : list of {"image_path", "bounding_box", "class"} dicts
-    embedding_backend: "owlv2" | "bioclip" | "dinov3"
-    model_bundle     : return value of load_embedding_model()
-    device           : ignored (kept for API compat; module-level DEVICE is used)
-    src_path         : base path prepended to image_path fields
-    crop_size        : centered-crop size for OWLv2 (ignored for other backends)
+    For each annotation: obtain a mask (from an existing ``segmentation`` RLE, else
+    by prompting SAM3 with ``bounding_box``), then DINOv3-embed the masked region.
 
     Returns
     -------
-    class_supports  : dict[class_name -> Tensor (N, D)]  stacked supports per class
-    generated_boxes : list of annotation dicts (includes "iou" for owlv2)
+    class_supports  : dict[class_name -> Tensor (N, D)]  stacked, L2-normed supports
+    support_masks   : list of {"image_path","class","segmentation"(RLE)} for traceability
     """
-    class_supports: Dict[str, list] = {}
-    generated_boxes: list = []
+    if embedding_backend != "dinov3":
+        raise ValueError(f"Unknown backend '{embedding_backend}'. Only 'dinov3' is supported.")
 
-    print(f"  [DEBUG] extract_support_embeddings: backend={embedding_backend}, n_examples={len(support_examples)}, src_path={src_path}")
+    processor, model = model_bundle
+    class_supports: Dict[str, list] = {}
+    support_masks: list = []
+
+    print(f"  [DEBUG] extract_support_embeddings: n_examples={len(support_examples)}, "
+          f"src_path={src_path}")
 
     if not support_examples:
         print("  [ERROR] support_examples is empty — check annotation JSON.")
@@ -358,85 +185,49 @@ def extract_support_embeddings(
 
     for idx, support in enumerate(support_examples):
         img_path   = os.path.join(src_path or "", support["image_path"])
-        bbox       = support["bounding_box"]
         class_name = support["class"]
-
-        print(f"  [DEBUG] [{idx}] class={class_name} | img={img_path} | bbox={bbox}")
 
         if not os.path.exists(img_path):
             print(f"  [ERROR] Image not found: {img_path}")
             continue
 
-        img  = Image.open(img_path).convert("RGB")
-        W, H = img.size
+        img = Image.open(img_path).convert("RGB")
 
-        x1 = max(0, min(int(bbox[0]), W - 1))
-        y1 = max(0, min(int(bbox[1]), H - 1))
-        x2 = max(0, min(int(bbox[2]), W))
-        y2 = max(0, min(int(bbox[3]), H))
-
-        print(f"  [DEBUG] [{idx}] image size=({W},{H}), clamped box=({x1},{y1},{x2},{y2})")
-
-        if x2 <= x1 or y2 <= y1:
-            print(f"  [WARN] Degenerate box {bbox} clamped to ({x1},{y1},{x2},{y2}), skipping.")
-            continue
-
-        crop = img.crop((x1, y1, x2, y2))
-
-        # Embed with the selected backend
-        if embedding_backend == "owlv2":
-            processor, model = model_bundle
-            # OWLv2: centered-crop + best-anchor selection → pooler_output (1024,)
-            emb, gen_box_extra = _embed_owlv2_centered(
-                img, bbox, processor, model, crop_size
-            )
-            generated_boxes.append({
-                "image_path":   support["image_path"],
-                "bounding_box": gen_box_extra["bounding_box"],
-                "class":        class_name,
-                "iou":          gen_box_extra["iou"],
-            })
-            if class_name not in class_supports:
-                class_supports[class_name] = []
-            class_supports[class_name].append(emb)
-            continue   # skip the generic generated_boxes.append below
-
-        elif embedding_backend == "bioclip":
-            emb = _embed_bioclip(crop, model_bundle)          # (512,)
-
-        elif embedding_backend == "dinov3":
-            processor, model = model_bundle
-            emb = _embed_dinov3(crop, processor, model)       # (D,)
-
+        # Obtain the object mask.
+        if support.get("segmentation") is not None:
+            mask = decode_rle(support["segmentation"])
         else:
-            raise ValueError(f"Unknown backend '{embedding_backend}'")
+            if tracker_bundle is None:
+                print(f"  [ERROR] [{idx}] no segmentation and no SAM3 tracker provided — skipping.")
+                continue
+            bbox = support.get("bounding_box")
+            if bbox is None:
+                print(f"  [WARN] [{idx}] annotation has neither segmentation nor bounding_box — skipping.")
+                continue
+            mask = segment_box(img, bbox, tracker_bundle)
+            if mask is None:
+                print(f"  [WARN] [{idx}] SAM3 produced empty mask for bbox={bbox} — skipping.")
+                continue
 
-        generated_boxes.append({
+        emb = _embed_dinov3_masked(img, mask, processor, model)   # (D,)
+
+        class_supports.setdefault(class_name, []).append(emb)
+        support_masks.append({
             "image_path":   support["image_path"],
-            "bounding_box": [x1, y1, x2, y2],
             "class":        class_name,
+            "segmentation": encode_rle(mask),
         })
-
-        if class_name not in class_supports:
-            class_supports[class_name] = []
-        class_supports[class_name].append(emb)   # list of (D,) tensors
-
-    # Stack per-class lists → (N, D) tensors
-    print(f"  [DEBUG] Raw class_supports keys collected: {list(class_supports.keys())}")
-    for c, embs in class_supports.items():
-        print(f"  [DEBUG]   '{c}': {len(embs)} embedding(s), each shape={embs[0].shape}")
+        print(f"  [DEBUG] [{idx}] class={class_name} | mask_px={int(mask.sum())}")
 
     if not class_supports:
-        print("  [ERROR] class_supports is empty — check src_path, image_path, bounding boxes.")
-        return {}, generated_boxes
+        print("  [ERROR] class_supports is empty — check src_path, image_path, masks.")
+        return {}, support_masks
 
     stacked: Dict[str, torch.Tensor] = {
-        c: torch.stack(embs, dim=0)
-        for c, embs in class_supports.items()
+        c: torch.stack(embs, dim=0) for c, embs in class_supports.items()
     }
-
-    print(f"  [DEBUG] Final stacked supports:")
+    print("  [DEBUG] Final stacked supports:")
     for c, t in stacked.items():
-        print(f"  [DEBUG]   '{c}': {t.shape}")
+        print(f"  [DEBUG]   '{c}': {tuple(t.shape)}")
 
-    return stacked, generated_boxes
+    return stacked, support_masks

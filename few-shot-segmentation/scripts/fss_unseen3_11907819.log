@@ -1,20 +1,0 @@
-[job] node=c0813.ten.osc.edu
-NVIDIA H100
-Loading weights:   0%|          | 0/211 [00:00<?, ?it/s]Loading weights: 100%|██████████| 211/211 [00:00<00:00, 19489.06it/s]
-[transformers] You are using a model of type `sam3_video` to instantiate a model of type `sam3_tracker`. This may be expected if you are loading a checkpoint that shares a subset of the architecture (e.g., loading a `sam2_video` checkpoint into `Sam2Model`), but is otherwise not supported and can yield errors. Please verify that the checkpoint is compatible with the model you are instantiating.
-Loading weights:   0%|          | 0/685 [00:00<?, ?it/s]Loading weights: 100%|██████████| 685/685 [00:00<00:00, 11011.37it/s]
-[unseen] device=cuda amp=torch.bfloat16
-[unseen] CONFIG FROM config.py → threshold=0.4 seed_z=1.5 seed_source=brightness min_distance=5 box_scale=1.0 neg_points=2 neg_threshold=0.4
-[support] id=0 April1/20250401_131221273_iOS.jpg anns=62
-[query] unseen_March13_20250312_152814387_iOS: instances=22 fg_fraction=0.0047 best_score=0.895
-[query] unseen_March13_20250312_152826328_iOS: instances=30 fg_fraction=0.0123 best_score=0.762
-[query] unseen_March13_20250312_152830735_iOS: instances=18 fg_fraction=0.0043 best_score=0.891
-[query] unseen_March13_20250312_152833541_iOS: instances=25 fg_fraction=0.0045 best_score=0.895
-[query] unseen_March13_20250312_152836330_iOS: instances=23 fg_fraction=0.0043 best_score=0.910
-[query] unseen_March14_20250314_132616566_iOS: instances=26 fg_fraction=0.0055 best_score=0.895
-[query] unseen_March14_20250314_132620815_iOS: instances=33 fg_fraction=0.0041 best_score=0.906
-[query] unseen_March14_20250314_132627433_iOS: instances=25 fg_fraction=0.0059 best_score=0.883
-[query] unseen_March14_20250314_132631279_iOS: instances=13 fg_fraction=0.0019 best_score=0.895
-[query] unseen_March14_20250314_132635648_iOS: instances=6 fg_fraction=0.0012 best_score=0.820
-[unseen] wrote 10 unseen results (overlay+debug+mask) to /users/PAS2699/naveenkamath/job-repository/few-shot-segmentation/fss/results
-[job] DONE

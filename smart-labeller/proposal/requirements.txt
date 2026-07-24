@@ -1,0 +1,10 @@
+numpy
+opencv-python
+Pillow
+torch
+transformers>=5.1.0
+scipy
+torchvision
+tqdm
+sahi
+pycocotools

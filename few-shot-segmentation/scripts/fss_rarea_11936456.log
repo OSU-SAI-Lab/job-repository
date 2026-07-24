@@ -1,34 +1,0 @@
-[job] node=c0816.ten.osc.edu
-NVIDIA H100
-Loading weights:   0%|          | 0/211 [00:00<?, ?it/s]Loading weights: 100%|██████████| 211/211 [00:00<00:00, 7611.18it/s]
-[transformers] You are using a model of type `sam3_video` to instantiate a model of type `sam3_tracker`. This may be expected if you are loading a checkpoint that shares a subset of the architecture (e.g., loading a `sam2_video` checkpoint into `Sam2Model`), but is otherwise not supported and can yield errors. Please verify that the checkpoint is compatible with the model you are instantiating.
-Loading weights:   0%|          | 0/685 [00:00<?, ?it/s]Loading weights:  17%|█▋        | 119/685 [00:00<00:00, 1143.50it/s]Loading weights:  34%|███▍      | 236/685 [00:00<00:00, 1128.24it/s]Loading weights:  51%|█████     | 349/685 [00:00<00:00, 1036.15it/s]Loading weights: 100%|██████████| 685/685 [00:00<00:00, 1693.95it/s]
-[test] device=cuda amp_dtype=torch.bfloat16 mode=crop crop=1024 dinov3=base
-[support] id=0 April1/20250401_131221273_iOS.jpg fg=0.0398 anns=62 crop=[614, 257, 1638, 1281]
-[compare] coco_q15:  boxes[IoU0.26 P0.52 R0.34 bgFP0.48]  per_granule[IoU0.37 P0.46 R0.66 bgFP0.54]  router_af0.02[IoU0.23 P0.47 R0.30 bgFP0.53]  router_af0.04[IoU0.23 P0.48 R0.31 bgFP0.52]  router_af0.06[IoU0.24 P0.48 R0.32 bgFP0.52]  router_af0.1[IoU0.22 P0.46 R0.29 bgFP0.54]
-[compare] coco_q30:  boxes[IoU0.12 P0.14 R0.51 bgFP0.86]  per_granule[IoU0.64 P0.70 R0.88 bgFP0.30]  router_af0.02[IoU0.63 P0.69 R0.88 bgFP0.31]  router_af0.04[IoU0.63 P0.69 R0.88 bgFP0.31]  router_af0.06[IoU0.63 P0.69 R0.88 bgFP0.31]  router_af0.1[IoU0.63 P0.69 R0.88 bgFP0.31]
-[compare] coco_q45:  boxes[IoU0.29 P0.44 R0.47 bgFP0.56]  per_granule[IoU0.71 P0.83 R0.83 bgFP0.17]  router_af0.02[IoU0.43 P0.79 R0.49 bgFP0.21]  router_af0.04[IoU0.45 P0.79 R0.51 bgFP0.21]  router_af0.06[IoU0.42 P0.79 R0.48 bgFP0.21]  router_af0.1[IoU0.44 P0.79 R0.49 bgFP0.21]
-[compare] coco_q60:  boxes[IoU0.82 P0.96 R0.84 bgFP0.04]  per_granule[IoU0.74 P0.96 R0.77 bgFP0.04]  router_af0.02[IoU0.81 P0.96 R0.84 bgFP0.04]  router_af0.04[IoU0.82 P0.95 R0.86 bgFP0.05]  router_af0.06[IoU0.82 P0.96 R0.85 bgFP0.04]  router_af0.1[IoU0.82 P0.96 R0.86 bgFP0.04]
-[compare] coco_q75:  boxes[IoU0.31 P0.35 R0.73 bgFP0.65]  per_granule[IoU0.71 P0.80 R0.86 bgFP0.20]  router_af0.02[IoU0.63 P0.77 R0.77 bgFP0.23]  router_af0.04[IoU0.63 P0.76 R0.78 bgFP0.24]  router_af0.06[IoU0.65 P0.76 R0.83 bgFP0.24]  router_af0.1[IoU0.67 P0.76 R0.86 bgFP0.24]
-[compare] coco_q90:  boxes[IoU0.22 P0.38 R0.35 bgFP0.62]  per_granule[IoU0.74 P0.84 R0.86 bgFP0.16]  router_af0.02[IoU0.38 P0.80 R0.42 bgFP0.20]  router_af0.04[IoU0.33 P0.79 R0.37 bgFP0.21]  router_af0.06[IoU0.35 P0.79 R0.38 bgFP0.21]  router_af0.1[IoU0.35 P0.79 R0.39 bgFP0.21]
-[compare] coco_q105:  boxes[IoU0.50 P0.56 R0.80 bgFP0.44]  per_granule[IoU0.61 P0.67 R0.87 bgFP0.33]  router_af0.02[IoU0.56 P0.62 R0.84 bgFP0.38]  router_af0.04[IoU0.57 P0.63 R0.86 bgFP0.37]  router_af0.06[IoU0.57 P0.62 R0.87 bgFP0.38]  router_af0.1[IoU0.21 P0.48 R0.28 bgFP0.52]
-[compare] unseen_20250312_152606642_iOS:  boxes[fg0.015 n1]  per_granule[fg0.012 n89]  router_af0.02[fg0.016 n1 routes={'n_components': 1, 'dense': 1, 'scattered': 0}]  router_af0.04[fg0.015 n1 routes={'n_components': 1, 'dense': 1, 'scattered': 0}]  router_af0.06[fg0.012 n89 routes={'n_components': 1, 'dense': 0, 'scattered': 1}]  router_af0.1[fg0.012 n89 routes={'n_components': 1, 'dense': 0, 'scattered': 1}]
-
-── acceptance table (IoU / P / R / bgFP per path) ──
-query                            boxes               per_granule             router_af0.02             router_af0.04             router_af0.06              router_af0.1
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-coco_q15           0.26/0.52/0.34/0.48       0.37/0.46/0.66/0.54       0.23/0.47/0.30/0.53       0.23/0.48/0.31/0.52       0.24/0.48/0.32/0.52       0.22/0.46/0.29/0.54
-coco_q30           0.12/0.14/0.51/0.86       0.64/0.70/0.88/0.30       0.63/0.69/0.88/0.31       0.63/0.69/0.88/0.31       0.63/0.69/0.88/0.31       0.63/0.69/0.88/0.31
-coco_q45           0.29/0.44/0.47/0.56       0.71/0.83/0.83/0.17       0.43/0.79/0.49/0.21       0.45/0.79/0.51/0.21       0.42/0.79/0.48/0.21       0.44/0.79/0.49/0.21
-coco_q60           0.82/0.96/0.84/0.04       0.74/0.96/0.77/0.04       0.81/0.96/0.84/0.04       0.82/0.95/0.86/0.05       0.82/0.96/0.85/0.04       0.82/0.96/0.86/0.04
-coco_q75           0.31/0.35/0.73/0.65       0.71/0.80/0.86/0.20       0.63/0.77/0.77/0.23       0.63/0.76/0.78/0.24       0.65/0.76/0.83/0.24       0.67/0.76/0.86/0.24
-coco_q90           0.22/0.38/0.35/0.62       0.74/0.84/0.86/0.16       0.38/0.80/0.42/0.20       0.33/0.79/0.37/0.21       0.35/0.79/0.38/0.21       0.35/0.79/0.39/0.21
-coco_q105          0.50/0.56/0.80/0.44       0.61/0.67/0.87/0.33       0.56/0.62/0.84/0.38       0.57/0.63/0.86/0.37       0.57/0.62/0.87/0.38       0.21/0.48/0.28/0.52
-
-── router verdict (IoU vs best pure path, per query) ──
-  router_af0.02    needs-tuning  coco_q15:0.23vs0.37(-0.15)  coco_q30:0.63vs0.64(-0.01)  coco_q45:0.43vs0.71(-0.28)  coco_q60:0.81vs0.82(-0.00)  coco_q75:0.63vs0.71(-0.08)  coco_q90:0.38vs0.74(-0.35)  coco_q105:0.56vs0.61(-0.05)
-  router_af0.04    needs-tuning  coco_q15:0.23vs0.37(-0.14)  coco_q30:0.63vs0.64(-0.01)  coco_q45:0.45vs0.71(-0.26)  coco_q60:0.82vs0.82(+0.00)  coco_q75:0.63vs0.71(-0.08)  coco_q90:0.33vs0.74(-0.40)  coco_q105:0.57vs0.61(-0.04)
-  router_af0.06    needs-tuning  coco_q15:0.24vs0.37(-0.14)  coco_q30:0.63vs0.64(-0.01)  coco_q45:0.42vs0.71(-0.29)  coco_q60:0.82vs0.82(+0.01)  coco_q75:0.65vs0.71(-0.06)  coco_q90:0.35vs0.74(-0.39)  coco_q105:0.57vs0.61(-0.04)
-  router_af0.1     needs-tuning  coco_q15:0.22vs0.37(-0.15)  coco_q30:0.63vs0.64(-0.01)  coco_q45:0.44vs0.71(-0.27)  coco_q60:0.82vs0.82(+0.01)  coco_q75:0.67vs0.71(-0.04)  coco_q90:0.35vs0.74(-0.38)  coco_q105:0.21vs0.61(-0.39)
-[test] artefacts written to /fs/ess/PAS2699/kamath/fertilizer_data/fss_results/router_area_eval
-[job] DONE

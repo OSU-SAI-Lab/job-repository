@@ -1,0 +1,69 @@
+Bootstrap: docker
+From: python:3.12-bullseye
+
+%files
+    generate_proposals.py /app/proposal/generate_proposals.py
+    sam3_proposal.py /app/proposal/sam3_proposal.py
+    owlv2_proposal.py /app/proposal/owlv2_proposal.py
+    embedding_utils.py /app/proposal/embedding_utils.py
+    OverlappingTileDataset.py /app/proposal/OverlappingTileDataset.py
+    OverlappingTileDataset.py /app/OverlappingTileDataset.py
+
+%environment
+    export PATH="/usr/local/bin:/app:/app/proposal:$PATH"
+    export LC_ALL=C.UTF-8
+    export LANG=C.UTF-8
+
+%post
+    echo "Setting up environment for generate_proposals.py"
+    apt-get update
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        git \
+        libgl1-mesa-glx \
+        libglib2.0-0 \
+        libxext6 \
+        libxrender1 \
+        libfontconfig1 \
+        libsm6 \
+        libice6
+
+    rm -rf /var/lib/apt/lists/*
+
+    cd /app
+    python3 -m pip install --upgrade pip
+
+    # Core ML/runtime dependencies for proposal generation
+    pip install --no-cache-dir \
+        numpy \
+        Pillow \
+        torch \
+        torchvision \
+        transformers \
+        tqdm \
+        scipy \
+        sahi \
+        opencv-python \
+        pybioclip \
+        open-clip-torch \
+        accelerate
+
+    # Make scripts readable/executable
+    chmod 755 /app/proposal/generate_proposals.py
+    chmod 644 /app/proposal/sam3_proposal.py
+    chmod 644 /app/proposal/owlv2_proposal.py
+    chmod 644 /app/proposal/embedding_utils.py
+    chmod 644 /app/proposal/OverlappingTileDataset.py
+    chmod 644 /app/OverlappingTileDataset.py
+
+    echo "Setup complete."
+
+%runscript
+    cd /app/proposal
+    python3 generate_proposals.py "$@"
+
+%labels
+    Maintainer "Brijesh Nanda <brundayogananda.1@osu.edu>"
+    Version "1.0"
+    Appname "Proposal Generator"
+    Description "Tiled proposal generation using SAM3/OWLv2 with pluggable embedding backends"

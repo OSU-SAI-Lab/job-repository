@@ -1,32 +1,0 @@
-[job] node=c0807.ten.osc.edu
-NVIDIA H100
-Loading weights:   0%|          | 0/211 [00:00<?, ?it/s]Loading weights:  44%|████▎     | 92/211 [00:00<00:00, 917.85it/s]Loading weights: 100%|██████████| 211/211 [00:00<00:00, 2054.25it/s]
-[transformers] You are using a model of type `sam3_video` to instantiate a model of type `sam3_tracker`. This may be expected if you are loading a checkpoint that shares a subset of the architecture (e.g., loading a `sam2_video` checkpoint into `Sam2Model`), but is otherwise not supported and can yield errors. Please verify that the checkpoint is compatible with the model you are instantiating.
-Loading weights:   0%|          | 0/685 [00:00<?, ?it/s]Loading weights:   3%|▎         | 21/685 [00:00<00:05, 123.28it/s]Loading weights:   5%|▌         | 36/685 [00:00<00:05, 119.04it/s]Loading weights:  13%|█▎        | 90/685 [00:00<00:02, 261.58it/s]Loading weights:  17%|█▋        | 119/685 [00:00<00:02, 206.98it/s]Loading weights:  21%|██        | 143/685 [00:00<00:02, 188.72it/s]Loading weights:  24%|██▍       | 164/685 [00:00<00:03, 147.32it/s]Loading weights:  26%|██▋       | 181/685 [00:01<00:03, 142.44it/s]Loading weights:  29%|██▉       | 197/685 [00:01<00:03, 142.97it/s]Loading weights:  32%|███▏      | 217/685 [00:01<00:03, 141.98it/s]Loading weights:  35%|███▌      | 243/685 [00:01<00:02, 164.40it/s]Loading weights:  40%|███▉      | 271/685 [00:01<00:02, 176.45it/s]Loading weights:  42%|████▏     | 290/685 [00:01<00:02, 153.60it/s]Loading weights:  45%|████▍     | 307/685 [00:01<00:02, 147.91it/s]Loading weights:  48%|████▊     | 327/685 [00:02<00:02, 147.79it/s]Loading weights:  52%|█████▏    | 357/685 [00:02<00:01, 183.27it/s]Loading weights:  55%|█████▌    | 377/685 [00:02<00:01, 162.48it/s]Loading weights:  58%|█████▊    | 395/685 [00:02<00:01, 148.95it/s]Loading weights:  61%|██████    | 415/685 [00:02<00:01, 151.01it/s]Loading weights:  65%|██████▌   | 446/685 [00:02<00:01, 162.52it/s]Loading weights:  69%|██████▊   | 470/685 [00:02<00:01, 165.71it/s]Loading weights:  74%|███████▍  | 507/685 [00:03<00:00, 192.00it/s]Loading weights:  95%|█████████▍| 650/685 [00:03<00:00, 394.45it/s]Loading weights: 100%|██████████| 685/685 [00:03<00:00, 211.45it/s]
-[cosverify] device=cuda amp=torch.bfloat16
-[q15] n_masks=256 cosine fg-bg min=-0.225 med=-0.225 max=0.339
-[q30] n_masks=102 cosine fg-bg min=-0.234 med=-0.234 max=0.253
-[q45] n_masks=256 cosine fg-bg min=-0.232 med=-0.232 max=0.355
-[q60] n_masks=249 cosine fg-bg min=-0.246 med=-0.246 max=0.357
-[q75] n_masks=227 cosine fg-bg min=-0.267 med=-0.267 max=0.340
-[q90] n_masks=256 cosine fg-bg min=-0.301 med=-0.301 max=0.361
-[q105] n_masks=256 cosine fg-bg min=-0.216 med=-0.216 max=0.365
-
-── cosine-verify threshold sweep (mean over 7 GT queries) ──
-threshold       mIoU    prec  recall   keep%
---------------------------------------------
-none           0.645   0.751   0.818    1.00  <- best
--0.20          0.123   0.765   0.131    0.13
--0.10          0.123   0.765   0.131    0.13
--0.05          0.125   0.784   0.131    0.13
-+0.00          0.125   0.789   0.131    0.13
-+0.05          0.125   0.789   0.131    0.13
-+0.10          0.123   0.826   0.127    0.12
-+0.15          0.124   0.864   0.127    0.12
-+0.20          0.107   0.864   0.109    0.10
-
-BASELINE (no verify): mIoU=0.6454 prec=0.7510
-BEST: threshold=none mIoU=0.6454 prec=0.7510 (Δ mIoU +0.0000, Δ prec +0.0000)
-
-[cosverify] wrote results + overlays to /users/PAS2699/naveenkamath/job-repository/few-shot-segmentation/fss/results/Cosine_Verify_Eval
-[job] DONE

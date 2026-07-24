@@ -1,0 +1,36 @@
+{
+  "summary": {
+    "total_tp": 60,
+    "total_fp": 40,
+    "total_fn": 21,
+    "precision": 0.6,
+    "recall": 0.7407407407407407,
+    "f1": 0.6629834254143647,
+    "mIoU": 0.7208355584752209,
+    "per_class_mIoU": {
+      "fertilizers": 0.7208355584752209
+    }
+  },
+  "per_image": {
+    "/users/PAS2699/naveenkamath/job-repository/smart-labeller-results/data/query_dir/20250401_131427986_iOS.jpg": {
+      "num_gt": 60,
+      "num_generated": 60,
+      "num_tp": 43,
+      "num_fp": 17,
+      "num_fn": 17,
+      "mean_iou": 0.7261451335040388,
+      "precision": 0.7166666666666667,
+      "recall": 0.7166666666666667
+    },
+    "/users/PAS2699/naveenkamath/job-repository/smart-labeller-results/data/query_dir/20250401_135721734_iOS.jpg": {
+      "num_gt": 21,
+      "num_generated": 40,
+      "num_tp": 17,
+      "num_fp": 23,
+      "num_fn": 4,
+      "mean_iou": 0.7074054569317407,
+      "precision": 0.425,
+      "recall": 0.8095238095238095
+    }
+  }
+}

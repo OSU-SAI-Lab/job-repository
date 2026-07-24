@@ -4,6 +4,7 @@ From: python:3.12-bullseye
 %files
     generate_class_supports_main.py /app/generate_class_supports_main.py
     class_supports_utils.py /app/class_supports_utils.py
+    ../proposal/mask_utils.py /app/mask_utils.py
     requirements.txt /app/requirements.txt # Ensure this file exists, even if empty
 
 %environment
@@ -39,6 +40,7 @@ From: python:3.12-bullseye
     echo "Making generate_class_supports_main.py executable"
     chmod 755 /app/generate_class_supports_main.py
     chmod 644 /app/class_supports_utils.py
+    chmod 644 /app/mask_utils.py
     echo "Setup complete."
 
 %runscript
@@ -50,5 +52,5 @@ From: python:3.12-bullseye
 %labels
     Maintainer "Brijesh Nanda <brundayogananda.1@osu.edu>"
     Version "1.0"
-    Appname "OWL v2 Object Detector"
-    Description "object detection using OWL v2 model"   
+    Appname "Class Support Generator"
+    Description "DINOv3 class-support embeddings from SAM3 GT masks (segmentation)"

@@ -122,3 +122,21 @@ Build with: `singularity build module.sif module.def`
 All stages use the **same DINOv3 model**. Supports and proposals must be produced with
 identical DINOv3 weights and the identical masked-crop embedding path, or cosine
 similarity is invalid.
+
+
+
+
+
+RUNNING Smart-Labeller for segmentation:
+1. Rend a OSC node
+2. Set up conda environment:
+  module load miniconda3/24.1.2-py310
+  source "${MINICONDA3_HOME}/etc/profile.d/conda.sh"
+  conda activate fss
+
+3. Set up Hugging Face:
+export HF_HOME=/fs/scratch/PAS2699/$USER/hf_cache
+export $(grep -v '^#' /users/PAS2699/naveenkamath/job-repository/.env | xargs)
+
+
+

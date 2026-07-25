@@ -96,6 +96,18 @@ def load_annotations(file_path, gt_from_box=False, img_hw=None):
 # Matching
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _bbox(mask: np.ndarray):
+    """Tight (y0, y1, x0, x1) extent of a boolean mask, or None if empty."""
+    ys, xs = np.where(mask)
+    if len(xs) == 0:
+        return None
+    return int(ys.min()), int(ys.max()) + 1, int(xs.min()), int(xs.max()) + 1
+
+
+def _boxes_disjoint(a, b) -> bool:
+    return a is None or b is None or a[1] <= b[0] or b[1] <= a[0] or a[3] <= b[2] or b[3] <= a[2]
+
+
 def _mask_iou(a: np.ndarray, b: np.ndarray) -> float:
     inter = np.logical_and(a, b).sum()
     if inter == 0:
@@ -111,9 +123,15 @@ def match_masks(gt_items, gen_items, iou_threshold=0.5):
     mask above ``iou_threshold``.  Class-agnostic, mirroring the original box
     evaluator.
 
+    A cheap bounding-box overlap test skips the expensive full-array IoU for the
+    (vast majority of) mask pairs that cannot possibly intersect.
+
     Returns matched_pairs [(gt_idx, gen_idx, iou)], unmatched_gt, unmatched_gen.
     """
     order = sorted(range(len(gen_items)), key=lambda i: gen_items[i]["score"], reverse=True)
+
+    gt_boxes  = [_bbox(g["mask"]) for g in gt_items]
+    gen_boxes = [_bbox(g["mask"]) for g in gen_items]
 
     matched_pairs = []
     matched_gt = set()
@@ -121,8 +139,11 @@ def match_masks(gt_items, gen_items, iou_threshold=0.5):
 
     for gen_idx in order:
         best_iou, best_gt = 0.0, -1
+        gbox = gen_boxes[gen_idx]
         for gt_idx, gt in enumerate(gt_items):
             if gt_idx in matched_gt:
+                continue
+            if _boxes_disjoint(gt_boxes[gt_idx], gbox):
                 continue
             iou = _mask_iou(gt["mask"], gen_items[gen_idx]["mask"])
             if iou > best_iou:

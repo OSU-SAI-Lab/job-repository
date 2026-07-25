@@ -45,40 +45,52 @@ def _outline(mask: np.ndarray, width: int = 2) -> np.ndarray:
     return mask & ~er
 
 
+CYAN = np.array([0, 200, 255], dtype=np.float32)   # prediction (no-GT mode)
+
+
+def _score_color(s, lo, hi):
+    """Low score -> orange, high score -> green (confidence heatmap)."""
+    t = 0.0 if hi <= lo else (s - lo) / (hi - lo)
+    return (1 - t) * np.array([255, 140, 0], np.float32) + t * np.array([0, 220, 0], np.float32)
+
+
 def render(image_path, gt_items, gen_items, iou_threshold, alpha=0.45, max_side=2000):
     img = Image.open(image_path).convert("RGB")
     base = np.asarray(img, dtype=np.float32)
-
-    matched, unmatched_gt, unmatched_gen = ev.match_masks(
-        gt_items, gen_items, iou_threshold=iou_threshold
-    )
-    matched_gen = {gen_idx for _, gen_idx, _ in matched}
-
     overlay = base.copy()
-    # Predicted masks: green if TP, red if FP.
-    for i, g in enumerate(gen_items):
-        color = GREEN if i in matched_gen else RED
-        m = g["mask"]
-        overlay[m] = (1 - alpha) * overlay[m] + alpha * color
-    # Missed GT (FN): yellow outline.
-    for gi in unmatched_gt:
-        ol = _outline(gt_items[gi]["mask"])
-        overlay[ol] = YELLOW
+
+    if gt_items is None:
+        # No-GT (unseen) mode: draw every prediction, shaded by confidence.
+        scores = [g["score"] for g in gen_items] or [0.0]
+        lo, hi = min(scores), max(scores)
+        for g in gen_items:
+            m = g["mask"]
+            overlay[m] = (1 - alpha) * overlay[m] + alpha * _score_color(g["score"], lo, hi)
+        stats = (len(gen_items), None, None)
+    else:
+        matched, unmatched_gt, unmatched_gen = ev.match_masks(
+            gt_items, gen_items, iou_threshold=iou_threshold
+        )
+        matched_gen = {gen_idx for _, gen_idx, _ in matched}
+        for i, g in enumerate(gen_items):
+            color = GREEN if i in matched_gen else RED
+            overlay[g["mask"]] = (1 - alpha) * overlay[g["mask"]] + alpha * color
+        for gi in unmatched_gt:
+            overlay[_outline(gt_items[gi]["mask"])] = YELLOW
+        stats = (len(matched), len(unmatched_gen), len(unmatched_gt))
 
     out = Image.fromarray(overlay.clip(0, 255).astype(np.uint8))
-
-    # Downscale for quick viewing.
     w, h = out.size
     if max(w, h) > max_side:
         s = max_side / max(w, h)
         out = out.resize((int(w * s), int(h * s)))
-
-    return out, len(matched), len(unmatched_gen), len(unmatched_gt)
+    return out, *stats
 
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--gt_file", required=True)
+    p.add_argument("--gt_file", default=None,
+                   help="GT masks JSON. Omit for unseen images (predictions-only mode).")
     p.add_argument("--generated_file", required=True)
     p.add_argument("--iou_threshold", type=float, default=0.5)
     p.add_argument("--score_threshold", type=float, default=0.0,
@@ -87,27 +99,33 @@ def main():
     p.add_argument("--max_side", type=int, default=2000)
     args = p.parse_args()
 
-    gt  = ev.load_annotations(args.gt_file)
+    gt  = ev.load_annotations(args.gt_file) if args.gt_file else None
     gen = ev.load_annotations(args.generated_file)
     os.makedirs(args.output_dir, exist_ok=True)
 
-    images = sorted(set(gt) | set(gen))
+    images = sorted(set(gen) | (set(gt) if gt else set()))
     for image_path in images:
-        gt_items  = gt.get(image_path, [])
+        gt_items  = gt.get(image_path, []) if gt else None
         gen_items = [g for g in gen.get(image_path, []) if g["score"] >= args.score_threshold]
         if not os.path.exists(image_path):
             print(f"  [skip] image not found: {image_path}")
             continue
-        out, tp, fp, fn = render(
+        out, a, b, c = render(
             image_path, gt_items, gen_items, args.iou_threshold, max_side=args.max_side
         )
         name = Path(image_path).stem + "_overlay.png"
         dst = os.path.join(args.output_dir, name)
         out.save(dst)
-        print(f"  {Path(image_path).name}: TP={tp} FP={fp} FN={fn} → {dst}")
+        if gt is None:
+            print(f"  {Path(image_path).name}: predictions={a} → {dst}")
+        else:
+            print(f"  {Path(image_path).name}: TP={a} FP={b} FN={c} → {dst}")
 
     print(f"\nOverlays written to: {args.output_dir}")
-    print("Legend: green=TP prediction, red=FP prediction, yellow outline=missed GT (FN)")
+    if gt is None:
+        print("Legend: mask fill shaded by confidence (orange=low → green=high).")
+    else:
+        print("Legend: green=TP prediction, red=FP prediction, yellow outline=missed GT (FN)")
 
 
 if __name__ == "__main__":

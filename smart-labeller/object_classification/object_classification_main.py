@@ -168,7 +168,7 @@ if __name__ == "__main__":
     parser.add_argument("--object_features_file_path", type=str, default=None,
                         help="DINOv3 proposal-feature .npz path")
     parser.add_argument("--objectness_threshold", type=float, default=0.1)
-    parser.add_argument("--similarity_threshold",  type=float, default=0.2)
+    parser.add_argument("--similarity_threshold",  type=float, default=0.3)
     parser.add_argument("--nms_iou_threshold",     type=float, default=0.5)
     parser.add_argument("--is_query_dir", action="store_true",
                         help="Treat --qry_path as a directory of images")

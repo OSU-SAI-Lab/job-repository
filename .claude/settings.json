@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(sbatch run_smoke.slurm)"
-    ]
-  }
-}

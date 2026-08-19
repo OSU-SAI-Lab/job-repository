@@ -1,0 +1,25 @@
+Bootstrap: docker
+From: python:3.12-slim-bullseye
+
+%files
+    evaluate_annotations.py /app/evaluate_annotations.py
+
+%environment
+    export LC_ALL=C.UTF-8
+    export LANG=C.UTF-8
+
+%post
+    apt-get update && apt-get install -y --no-install-recommends gcc && rm -rf /var/lib/apt/lists/*
+    python3 -m pip install --upgrade pip
+    pip install --no-cache-dir numpy pycocotools
+    chmod 755 /app/evaluate_annotations.py
+
+%runscript
+    cd /app
+    python3 evaluate_annotations.py "$@"
+
+%labels
+    Maintainer "Naveen Kamath"
+    Version "1.0"
+    Appname "Segmentation Evaluator"
+    Description "Mask-IoU / mIoU evaluation of generated masks vs GT"

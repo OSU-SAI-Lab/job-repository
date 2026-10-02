@@ -27,6 +27,14 @@ from pathlib import Path
 import json
 import time
 import numpy as np
+from PIL import Image
+from embedding_utils import DEVICE
+
+_PROPOSAL_DIR = Path(__file__).resolve().parent
+if str(_PROPOSAL_DIR) not in sys.path:
+    sys.path.insert(0, str(_PROPOSAL_DIR))
+from job_split.plan_run import plan_proposal_run
+from job_split.run_chunks import execute_chunks
 
 # Locate shared image_discovery module (works locally and in containers).
 _SL_ROOT = Path(__file__).resolve().parent
@@ -51,6 +59,76 @@ def get_proposer(name):
         return generate_proposals_tiled
     else:
         raise ValueError(f"Unknown proposer '{name}'. Choose from: {PROPOSERS}")
+
+
+def run_pipeline(args, discovered, output_dir, timestamp, logger):
+    """Run every proposer and embedder on this image list and write its outputs."""
+    image_files = [path for path, _ in discovered]
+    rel_key_by_path = path_key_map(discovered)
+    tile_size = args.tile_size if args.is_sahi else None
+    overlap_ratio = args.overlap_ratio if args.is_sahi else None
+    extra_kwargs = {}
+    if args.model_id:
+        extra_kwargs["model_id"] = args.model_id
+
+    for proposer in args.proposers:
+        logger.info(f"--- Proposer: {proposer} ---")
+        proposer_start = time.time()
+        generate_proposals_tiled = get_proposer(proposer)
+        results = generate_proposals_tiled(
+            image_paths=image_files,
+            text_prompt=args.text_prompt,
+            confidence_threshold=args.confidence,
+            is_sahi=args.is_sahi,
+            tile_size=tile_size,
+            overlap_ratio=overlap_ratio,
+            batch_size=args.batch_size,
+            nms_iou_threshold=args.nms_iou,
+            embedding_backend=args.embedders[0],
+            **extra_kwargs,
+        )
+
+        for embedder in args.embedders:
+            logger.info(f"Generating embeddings with {embedder}...")
+            all_data = {}
+            all_annotations = []
+            for image_path, det in results.items():
+                rel_key = rel_key_by_path.get(
+                    str(Path(image_path).resolve()),
+                    Path(image_path).name,
+                )
+                if det is None:
+                    logger.debug(f"No detections for {rel_key}")
+                    continue
+                features = det["features"]
+                boxes = det["boxes"]
+                scores = det["scores"]
+                all_data[f"{rel_key}_features"] = features
+                all_data[f"{rel_key}_boxes"] = boxes
+                all_data[f"{rel_key}_scores"] = scores
+                for i in range(len(scores)):
+                    all_annotations.append({
+                        "image_path": rel_key,
+                        "bounding_box": boxes[i].tolist() if hasattr(boxes[i], "tolist") else list(boxes[i]),
+                        "score": float(scores[i]),
+                        "class": str(float(scores[i])),
+                    })
+
+            features_dir = Path(output_dir) / "proposals/tensors"
+            boxes_dir = Path(output_dir) / "proposals/generated_boxes"
+            features_dir.mkdir(parents=True, exist_ok=True)
+            boxes_dir.mkdir(parents=True, exist_ok=True)
+            npz_path = features_dir / f"features_{embedder}_{proposer}_{timestamp}.npz"
+            json_path = boxes_dir / f"generated_boxes_{embedder}_{proposer}_{timestamp}.json"
+            if all_data:
+                np.savez(npz_path, **all_data)
+                logger.info(f"Saved features ({len(all_data) // 3} images) → {npz_path}")
+            with open(json_path, "w") as handle:
+                json.dump({"annotations": all_annotations}, handle, indent=2)
+            logger.info(f"Saved {len(all_annotations)} box annotations → {json_path}")
+
+        elapsed = time.time() - proposer_start
+        logger.info(f"Proposer '{proposer}' finished in {elapsed:.1f}s")
 
 
 if __name__ == "__main__":
@@ -99,6 +177,10 @@ if __name__ == "__main__":
     )
     logger = logging.getLogger(__name__)
 
+    #CPU Warning
+    if DEVICE == "cpu":
+        logger.warning("WARNING: Using CPU instead of GPU for inference")
+
     # Validation: SAM3 proposer cannot use OWLv2 embedder - remove it and continue
     if "sam3" in args.proposers and "owlv2" in args.embedders:
         logger.warning("OWLv2 embedder cannot be used with SAM3 proposer. Removing OWLv2 from embedders.")
@@ -115,9 +197,8 @@ if __name__ == "__main__":
     os.makedirs(args.output_dir, exist_ok=True)
 
     image_dir = Path(args.image_dir)
-    discovered      = discover_images(image_dir)
-    image_files     = [p for p, _ in discovered]
-    rel_key_by_path = path_key_map(discovered)
+    discovered = discover_images(image_dir)
+    image_files = [path for path, _ in discovered]
 
     logger.info(f"Found {len(image_files)} images under {image_dir} (recursive)")
     if not image_files:
@@ -132,89 +213,43 @@ if __name__ == "__main__":
     logger.info(f"Embedders: {', '.join(args.embedders)}")
     logger.info(f"SAHI: {args.is_sahi}")
 
-    # Only use tiling parameters if SAHI is enabled
-    tile_size = args.tile_size if args.is_sahi else None
-    overlap_ratio = args.overlap_ratio if args.is_sahi else None
-
-    extra_kwargs = {}
-    if args.model_id:
-        extra_kwargs["model_id"] = args.model_id
-
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-
     pipeline_start = time.time()
+    output_dir = Path(args.output_dir)
 
-    # Process each proposer
-    for proposer in args.proposers:
-        logger.info(f"--- Proposer: {proposer} ---")
-        proposer_start = time.time()
+    image_sizes = []
+    if args.batch_size == 1 and args.is_sahi:
+        for path, _ in discovered:
+            with Image.open(path) as handle:
+                image_sizes.append(handle.size)
+    try:
+        plan = plan_proposal_run(
+            image_sizes,
+            args.proposers,
+            args.embedders,
+            args.tile_size,
+            args.overlap_ratio,
+            args.batch_size,
+            args.is_sahi,
+        )
+    except ValueError as exc:
+        logger.error("%s", exc)
+        sys.exit(1)
 
-        generate_proposals_tiled = get_proposer(proposer)
-
-        results = generate_proposals_tiled(
-            image_paths=image_files,
-            text_prompt=args.text_prompt,
-            confidence_threshold=args.confidence,
-            is_sahi=args.is_sahi,
-            tile_size=tile_size,
-            overlap_ratio=overlap_ratio,
-            batch_size=args.batch_size,
-            nms_iou_threshold=args.nms_iou,
-            embedding_backend=args.embedders[0],  # Start with first embedder for initial proposals
-            **extra_kwargs,
+    if plan is None:
+        run_pipeline(args, discovered, output_dir, timestamp, logger)
+    else:
+        logger.info(
+            "Splitting %d images into %d chunks. Heaviest chunk estimated at %.0fs.",
+            len(discovered),
+            plan.n,
+            plan.predicted_seconds,
         )
 
-        # For each embedder, generate embeddings
-        for embedder in args.embedders:
-            logger.info(f"Generating embeddings with {embedder}...")
+        def run_chunk(chunk, part_dir):
+            run_pipeline(args, chunk, part_dir, timestamp, logger)
 
-            all_data        = {}   # merged dict fed to np.savez
-            all_annotations = []   # list of per-box annotation dicts
-
-            for image_path, det in results.items():
-                rel_key = rel_key_by_path.get(
-                    str(Path(image_path).resolve()),
-                    Path(image_path).name,
-                )
-                if det is None:
-                    logger.debug(f"No detections for {rel_key}")
-                    continue
-
-                features = det["features"]
-                boxes    = det["boxes"]
-                scores   = det["scores"]
-
-                all_data[f"{rel_key}_features"] = features
-                all_data[f"{rel_key}_boxes"]    = boxes
-                all_data[f"{rel_key}_scores"]   = scores
-
-                for i in range(len(scores)):
-                    all_annotations.append({
-                        "image_path":    rel_key,
-                        "bounding_box":  boxes[i].tolist() if hasattr(boxes[i], "tolist") else list(boxes[i]),
-                        "score":         float(scores[i]),
-                        "class":         str(float(scores[i])),   # placeholder class name
-                    })
-
-            # Write combined .npz and JSON for this proposer-embedder combination
-            features_dir = Path(args.output_dir) / "proposals/tensors"
-            boxes_dir    = Path(args.output_dir) / "proposals/generated_boxes"
-            features_dir.mkdir(parents=True, exist_ok=True)
-            boxes_dir.mkdir(parents=True, exist_ok=True)
-
-            npz_path  = features_dir / f"features_{embedder}_{proposer}_{timestamp}.npz"
-            json_path = boxes_dir    / f"generated_boxes_{embedder}_{proposer}_{timestamp}.json"
-
-            if all_data:
-                np.savez(npz_path, **all_data)
-                logger.info(f"Saved features ({len(all_data) // 3} images) → {npz_path}")
-
-            with open(json_path, "w") as f:
-                json.dump({"annotations": all_annotations}, f, indent=2)
-            logger.info(f"Saved {len(all_annotations)} box annotations → {json_path}")
-
-        elapsed = time.time() - proposer_start
-        logger.info(f"Proposer '{proposer}' finished in {elapsed:.1f}s")
+        execute_chunks(discovered, plan, output_dir, timestamp, run_chunk)
 
     total_elapsed = time.time() - pipeline_start
     logger.info(f"All proposers and embedders processed successfully in {total_elapsed:.1f}s")
